@@ -7,6 +7,7 @@ use odbc::{
 use problem::*;
 use regex::Regex;
 pub use serde_json::value::Value;
+use std::cell::{Ref, RefCell};
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -463,6 +464,34 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, Problem
         .map(|r| r.map(|m| m.as_str()))
 }
 
+// Note: odbc-sys stuff is not Sent and therfore we need to create objects per thread
+thread_local! {
+    // Leaking ODBC handle per thread should be OK...ish assuming a thread pool is used?
+    static ODBC: &'static EnvironmentV3 = Box::leak(Box::new(Odbc::env().or_failed_to("Initialize ODBC")));
+    static DB: RefCell<Result<Odbc<'static>, Problem>> = RefCell::new(Err(Problem::cause("Not connected")));
+}
+
+/// Access to thread local connection
+/// Connection will be astablished only once if successful or any time this function is called again after it failed to connect prevously
+pub fn with_thread_local_connection<O>(
+    connection_string: &str,
+    f: impl Fn(Ref<Result<Odbc<'static>, Problem>>) -> O,
+) -> O {
+    DB.with(|db| {
+        {
+            let mut db = db.borrow_mut();
+            if db.is_err() {
+                let id = std::thread::current().id();
+                debug!("[{:?}] Connecting to database: {}", id, &connection_string);
+
+                *db = ODBC.with(|odbc| Odbc::connect(odbc, &connection_string));
+            }
+        };
+
+        f(db.borrow())
+    })
+}
+
 #[cfg(test)]
 mod query {
     use super::*;
@@ -652,7 +681,9 @@ mod query {
             values
                 .with_schema_access(schema)
                 .take("val")
-                .map(|val| Foo { val: val.as_i64().expect("val to be a number") })
+                .map(|val| Foo {
+                    val: val.as_i64().expect("val to be a number"),
+                })
         }
     }
 
