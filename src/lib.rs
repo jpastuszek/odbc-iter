@@ -473,7 +473,7 @@ thread_local! {
 
 /// Access to thread local connection
 /// Connection will be astablished only once if successful or any time this function is called again after it failed to connect prevously
-pub fn with_thread_local_connection<O>(
+pub fn thread_local_connection_with<O>(
     connection_string: &str,
     f: impl Fn(Ref<Result<Odbc<'static>, Problem>>) -> O,
 ) -> O {
