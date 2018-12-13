@@ -500,20 +500,21 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, Problem
 #[cfg(test)]
 mod query {
     use super::*;
-    use serde_json::value::Value;
+    #[allow(unused_imports)]
     use assert_matches::assert_matches;
-    use std::env;
- 
+
+    #[cfg(feature = "test-sql-server")]
     pub fn sql_server_connection_string() -> String {
-        env::var("SQL_SERVER_ODBC_CONNECTION")
+        std::env::var("SQL_SERVER_ODBC_CONNECTION")
             .or_failed_to("SQL_SERVER_ODBC_CONNECTION not set")
     }
 
+    #[cfg(feature = "test-hive")]
     pub fn hive_connection_string() -> String {
-        env::var("HIVE_ODBC_CONNECTION")
-            .or_failed_to("HIVE_ODBC_CONNECTION not set")
+        std::env::var("HIVE_ODBC_CONNECTION").or_failed_to("HIVE_ODBC_CONNECTION not set")
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_multiple_rows() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -529,6 +530,7 @@ mod query {
         assert_matches!(data[1][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_multiple_columns() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -544,6 +546,7 @@ mod query {
         assert_matches!(data[0][1], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_integer() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -560,6 +563,7 @@ mod query {
         assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(9223372036854775807)));
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_boolean() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -576,6 +580,7 @@ mod query {
         assert_eq!(data[0][2], Value::Null);
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_string() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -591,6 +596,7 @@ mod query {
         assert_matches!(data[0][1], Value::String(ref string) => assert_eq!(string.as_str(), "bar"));
     }
 
+    #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_types_string() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -607,6 +613,7 @@ mod query {
         assert_matches!(data[0][3], Value::String(ref string) => assert_eq!(string.as_str(), "quix"));
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_float() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -622,6 +629,7 @@ mod query {
         assert_matches!(data[0][1], Value::Number(ref number) => assert!(number.as_f64().unwrap() > 2.0 && number.as_f64().unwrap() < 3.0));
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_null() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -637,6 +645,7 @@ mod query {
         assert!(data[0][1].is_null());
     }
 
+    #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_date() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -651,6 +660,7 @@ mod query {
         assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string.as_str(), "2018-08-24"));
     }
 
+    #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_time() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -681,6 +691,7 @@ mod query {
         }
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_custom_type() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -695,8 +706,9 @@ mod query {
         assert_eq!(foo[0].val, 42);
     }
 
+    #[cfg(feature = "test-sql-server")]
     #[test]
-    fn test_sql_serverquery_with_parameters() {
+    fn test_sql_server_query_with_parameters() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
@@ -712,8 +724,9 @@ mod query {
         assert_eq!(foo[0].val, 42);
     }
 
+    #[cfg(feature = "test-sql-server")]
     #[test]
-    fn test_sql_serverquery_with_many_parameters() {
+    fn test_sql_server_query_with_many_parameters() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
@@ -734,6 +747,7 @@ mod query {
         assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(666)));
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_empty_data_set() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
@@ -894,6 +908,7 @@ SELECT *;
         assert_eq!(queries, ["SELECT 1;", "SELECT 2;", "SELECT 3;"]);
     }
 
+    #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_multiple_queries() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
