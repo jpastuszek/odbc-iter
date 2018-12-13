@@ -26,40 +26,6 @@ pub type EnvironmentV3 = Environment<Version3>;
 pub type Values = Vec<Value>;
 pub type OdbcSchema = Vec<ColumnDescriptor>;
 
-pub trait TryInto<T> {
-    fn try_into(self) -> Result<T, Problem>;
-}
-
-impl TryInto<String> for Value {
-    fn try_into(self) -> Result<String, Problem> {
-        if !self.is_string() {
-            return Err(Problem::cause("Value is not a String"))
-                .problem_while_with(|| format!("casting {:?} to String", &self));
-        }
-        if let Value::String(string) = self {
-            Ok(string)
-        } else {
-            panic!("is_string == true but not String!")
-        }
-    }
-}
-
-impl TryInto<i64> for Value {
-    fn try_into(self) -> Result<i64, Problem> {
-        self.as_i64()
-            .ok_or_problem("Value is not a Number")
-            .problem_while_with(|| format!("casting {:?} to i64", &self))
-    }
-}
-
-impl TryInto<f64> for Value {
-    fn try_into(self) -> Result<f64, Problem> {
-        self.as_f64()
-            .ok_or_problem("Value is not a Number")
-            .problem_while_with(|| format!("casting {:?} to f64", &self))
-    }
-}
-
 pub struct SchemaAccess<'v> {
     value: Vec<Value>,
     schema: &'v OdbcSchema,
@@ -685,9 +651,8 @@ mod query {
         fn try_from_row(values: Values, schema: &OdbcSchema) -> Result<Self, Problem> {
             values
                 .with_schema_access(schema)
-                .take("val")?
-                .try_into()
-                .map(|val| Foo { val })
+                .take("val")
+                .map(|val| Foo { val: val.as_i64().expect("val to be a number") })
         }
     }
 
