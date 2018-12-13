@@ -1,0 +1,16 @@
+[package]
+name = "odbc-iter"
+version = "0.1.0"
+authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+#odbc = "0.9.6"
+#odbc = { path = "../odbc-rs" }
+odbc = { git = "https://github.com/jpastuszek/odbc-rs.git" }
+serde_json = "1.0.33"
+odbc-sys = "0.6.1"
+log = "0.4.6"
+regex = "1.1.0"
+problem = "0.1.0"
+lazy_static = "1.2.0"
