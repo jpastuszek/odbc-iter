@@ -500,8 +500,19 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, Problem
 #[cfg(test)]
 mod query {
     use super::*;
-    use ::prelude::{hive_connection_string, report_db_connection_string};
     use serde_json::value::Value;
+    use assert_matches::assert_matches;
+    use std::env;
+ 
+    pub fn sql_server_connection_string() -> String {
+        env::var("SQL_SERVER_ODBC_CONNECTION")
+            .or_failed_to("SQL_SERVER_ODBC_CONNECTION not set")
+    }
+
+    pub fn hive_connection_string() -> String {
+        env::var("HIVE_ODBC_CONNECTION")
+            .or_failed_to("HIVE_ODBC_CONNECTION not set")
+    }
 
     #[test]
     fn test_hive_multiple_rows() {
@@ -583,7 +594,7 @@ mod query {
     #[test]
     fn test_sql_server_types_string() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, report_db_connection_string().as_str())
+        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
         let data = hive.query::<Value>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
             .or_failed_to("failed to run query")
@@ -629,7 +640,7 @@ mod query {
     #[test]
     fn test_sql_server_date() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, report_db_connection_string().as_str())
+        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
         let data = hive
             .query::<Value>("SELECT cast('2018-08-24' AS DATE) AS date")
@@ -643,7 +654,7 @@ mod query {
     #[test]
     fn test_sql_server_time() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, report_db_connection_string().as_str())
+        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
         let data = hive
             .query::<Value>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
@@ -687,7 +698,7 @@ mod query {
     #[test]
     fn test_sql_serverquery_with_parameters() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, report_db_connection_string().as_str())
+        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
 
         let val = 42;
@@ -704,7 +715,7 @@ mod query {
     #[test]
     fn test_sql_serverquery_with_many_parameters() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, report_db_connection_string().as_str())
+        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .or_failed_to("connect to Hive");
 
         let val = [42, 24, 32, 666];
