@@ -5,8 +5,7 @@ extern crate structopt;
 use cotton::prelude::*;
 use odbc_iter::{Odbc, Values};
 
-// https://docs.rs/structopt/0.2.12/structopt/index.html#how-to-derivestructopt
-/// Does stuff
+/// Query ODBC database
 #[derive(Debug, StructOpt)]
 struct Cli {
     #[structopt(flatten)]
