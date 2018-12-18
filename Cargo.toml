@@ -11,9 +11,8 @@ test-hive = []
 test-sql-server = []
 
 [dependencies]
-#odbc = "0.9.6"
+odbc = "0.9.13"
 #odbc = { path = "../odbc-rs" }
-odbc = { git = "https://github.com/jpastuszek/odbc-rs.git" }
 serde_json = "1.0.33"
 odbc-sys = "0.6.1"
 log = "0.4.6"
