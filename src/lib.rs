@@ -401,7 +401,7 @@ impl<'env> Odbc<'env> {
                         if odbc_schema.len() == 0 {
                             debug!("Got empty data set");
                         } else {
-                            debug!("Got data with columns: {}", odbc_schema.iter().map(|cd| cd.name.clone()).collect::<Vec<String>>().join(", "));
+                            debug!("Got data with columns: {}", odbc_schema.iter().map(|cd| format!("{} [{:?}]", cd.name, cd.data_type)).collect::<Vec<String>>().join(", "));
                         }
                     }
 
