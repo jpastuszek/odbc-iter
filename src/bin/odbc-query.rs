@@ -1,7 +1,3 @@
-extern crate cotton;
-extern crate log;
-extern crate structopt;
-
 use cotton::prelude::*;
 use odbc_iter::{Odbc, Values};
 

@@ -1,14 +1,13 @@
+use cotton::prelude::*;
+
 use lazy_static::lazy_static;
-use log::{debug, log_enabled, trace};
 use odbc::{
     self, ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
 };
-use problem::*;
 use regex::Regex;
 pub use serde_json::value::Value;
 use std::cell::{Ref, RefCell};
-use std::fmt::Display;
 use std::marker::PhantomData;
 
 /// TODO
@@ -397,7 +396,7 @@ impl<'env> Odbc<'env> {
                             .collect::<Result<Vec<ColumnDescriptor>, _>>().map_problem()?;
                     let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
 
-                    if log_enabled!(::log::Level::Debug) {
+                    if log_enabled!(log::Level::Debug) {
                         if odbc_schema.len() == 0 {
                             debug!("Got empty data set");
                         } else {
@@ -422,7 +421,7 @@ impl<'env> Odbc<'env> {
                 }
             };
 
-            if log_enabled!(::log::Level::Trace) {
+            if log_enabled!(log::Level::Trace) {
                 for cd in &odbc_schema {
                     trace!("ODBC query result schema: {} [{:?}] size: {:?} nullable: {:?} decimal_digits: {:?}", cd.name, cd.data_type, cd.column_size, cd.nullable, cd.decimal_digits);
                 }
