@@ -1,13 +1,14 @@
-use cotton::prelude::*;
-
 use lazy_static::lazy_static;
+use log::{debug, log_enabled, trace};
 use odbc::{
     self, ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
 };
+use problem::*;
 use regex::Regex;
 pub use serde_json::value::Value;
 use std::cell::{Ref, RefCell};
+use std::fmt::Display;
 use std::marker::PhantomData;
 
 /// TODO
@@ -125,6 +126,7 @@ where
     odbc_schema: Vec<ColumnDescriptor>,
     schema: V::Schema,
     phantom: PhantomData<V>,
+    utf_16_strings: bool,
 }
 
 impl<'odbc, V> RowIter<'odbc, V>
@@ -177,6 +179,8 @@ where
             return None;
         }
 
+        let utf_16_strings = self.utf_16_strings;
+
         match self.statement.as_mut().unwrap().fetch() {
             Err(err) => Some(Err(err.to_problem())),
             Ok(Some(mut cursor)) => {
@@ -203,17 +207,21 @@ where
                                     cursor_get_value::<String>(&mut cursor, index as u16)
                                 }
                                 SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
-                                    cursor_get_data::<&[u16]>(&mut cursor, index as u16).and_then(
-                                        |value| {
-                                            if let Some(bytes) = value {
-                                                String::from_utf16(bytes)
-                                                    .map_problem()
-                                                    .map(Value::String)
-                                            } else {
-                                                Ok(Value::Null)
-                                            }
-                                        },
-                                    )
+                                    if utf_16_strings {
+                                        cursor_get_data::<&[u16]>(&mut cursor, index as u16).and_then(
+                                            |value| {
+                                                if let Some(bytes) = value {
+                                                    String::from_utf16(bytes)
+                                                        .map_problem()
+                                                        .map(Value::String)
+                                                } else {
+                                                    Ok(Value::Null)
+                                                }
+                                            },
+                                        )
+                                    } else {
+                                        cursor_get_value::<String>(&mut cursor, index as u16)
+                                    }
                                 }
                                 SQL_TIMESTAMP => {
                                     cursor_get_data::<SqlTimestamp>(&mut cursor, index as u16)
@@ -334,6 +342,11 @@ impl<'odbc, 't> From<Statement<'odbc, 'odbc, Prepared, NoResult>> for Binder<'od
 
 pub struct Odbc<'env> {
     connection: Connection<'env>,
+    utf_16_strings: bool,
+}
+
+pub struct Options {
+    utf_16_strings: bool
 }
 
 impl<'env> Odbc<'env> {
@@ -349,10 +362,17 @@ impl<'env> Odbc<'env> {
         env: &'env Environment<Version3>,
         connection_string: &str,
     ) -> Result<Odbc<'env>, Problem> {
+        Self::connect_with_options(env, connection_string, Options { utf_16_strings: false })
+    }
+
+    pub fn connect_with_options(
+        env: &'env Environment<Version3>,
+        connection_string: &str,
+        options: Options) -> Result<Odbc<'env>, Problem> {
         let connection = env
             .connect_with_connection_string(connection_string)
             .map_problem()?;
-        Ok(Odbc { connection })
+        Ok(Odbc { connection, utf_16_strings: options.utf_16_strings })
     }
 
     pub fn statement<'odbc>(
@@ -396,11 +416,11 @@ impl<'env> Odbc<'env> {
                             .collect::<Result<Vec<ColumnDescriptor>, _>>().map_problem()?;
                     let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
 
-                    if log_enabled!(log::Level::Debug) {
+                    if log_enabled!(::log::Level::Debug) {
                         if odbc_schema.len() == 0 {
                             debug!("Got empty data set");
                         } else {
-                            debug!("Got data with columns: {}", odbc_schema.iter().map(|cd| format!("{} [{:?}]", cd.name, cd.data_type)).collect::<Vec<String>>().join(", "));
+                            debug!("Got data with columns: {}", odbc_schema.iter().map(|cd| cd.name.clone()).collect::<Vec<String>>().join(", "));
                         }
                     }
 
@@ -421,7 +441,7 @@ impl<'env> Odbc<'env> {
                 }
             };
 
-            if log_enabled!(log::Level::Trace) {
+            if log_enabled!(::log::Level::Trace) {
                 for cd in &odbc_schema {
                     trace!("ODBC query result schema: {} [{:?}] size: {:?} nullable: {:?} decimal_digits: {:?}", cd.name, cd.data_type, cd.column_size, cd.nullable, cd.decimal_digits);
                 }
@@ -433,7 +453,8 @@ impl<'env> Odbc<'env> {
                 statement: statement,
                 odbc_schema,
                 schema,
-                phantom: PhantomData
+                phantom: PhantomData,
+                utf_16_strings: self.utf_16_strings,
             })
         }).problem_while_with(|| format!("executing query: '{}'", query))
     }
@@ -497,6 +518,9 @@ mod query {
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
 
+    // 600 chars
+    const LONG_STRING: &'static str = "Lórem ipsum dołor sit amet, cońsectetur adipiścing elit. Fusce risus ipsum, ultricies ac odio ut, vestibulum hendrerit leo. Nunc cursus dapibus mattis. Donec quis est arcu. Sed a tortor sit amet erat euismod pulvinar. Etiam eu erat eget turpis semper finibus. Etiam lobortis egestas diam a consequat. Morbi iaculis lorem sed erat iaculis vehicula. Praesent at porttitor eros. Quisque tincidunt congue ornare. Donec sed nulla a ex sollicitudin lacinia. Fusce ut fermentum tellus, id pretium libero. Donec dapibus faucibus sapien at semper. In id felis sollicitudin, luctus doloź sit amet orci aliquam.";
+
     #[cfg(feature = "test-sql-server")]
     pub fn sql_server_connection_string() -> String {
         std::env::var("SQL_SERVER_ODBC_CONNECTION")
@@ -506,6 +530,11 @@ mod query {
     #[cfg(feature = "test-hive")]
     pub fn hive_connection_string() -> String {
         std::env::var("HIVE_ODBC_CONNECTION").or_failed_to("HIVE_ODBC_CONNECTION not set")
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    pub fn monetdb_connection_string() -> String {
+        std::env::var("MONETDB_ODBC_CONNECTION").or_failed_to("HIVE_ODBC_CONNECTION not set")
     }
 
     #[cfg(feature = "test-hive")]
@@ -757,6 +786,95 @@ mod query {
         assert!(data.is_empty());
     }
 
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_long_string_fetch() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let sql_server =
+            Odbc::connect(&odbc, sql_server_connection_string().as_str()).or_failed_to("connect to SQL Server");
+        let data = sql_server
+            .query::<Value>(&format!("SELECT N'{}'", LONG_STRING))
+            .or_failed_to("failed to run query")
+            .collect::<Result<Vec<_>, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+    }
+
+    #[cfg(feature = "test-hive")]
+    #[test]
+    fn test_hive_long_string_fetch() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let hive =
+            Odbc::connect(&odbc, hive_connection_string().as_str()).or_failed_to("connect to Hive");
+        let data = hive
+            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .or_failed_to("failed to run query")
+            .collect::<Result<Vec<_>, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_moentdb_long_string_fetch() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let monetdb =
+            Odbc::connect(&odbc, monetdb_connection_string().as_str()).or_failed_to("connect to MonetDB");
+        let data = monetdb
+            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .or_failed_to("failed to run query")
+            .collect::<Result<Vec<_>, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+    }
+
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_long_string_fetch_utf_16() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let sql_server =
+            Odbc::connect_with_options(&odbc, sql_server_connection_string().as_str(), Options { utf_16_strings: true }).or_failed_to("connect to SQL Server");
+        let data = sql_server
+            .query::<Value>(&format!("SELECT N'{}'", LONG_STRING))
+            .or_failed_to("failed to run query")
+            .collect::<Result<Vec<_>, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+    }
+
+    #[cfg(feature = "test-hive")]
+    #[test]
+    fn test_hive_long_string_fetch_utf_16() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let hive =
+            Odbc::connect_with_options(&odbc, hive_connection_string().as_str(), Options { utf_16_strings: true }).or_failed_to("connect to Hive");
+        let data = hive
+            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .or_failed_to("failed to run query")
+            .collect::<Result<Vec<_>, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_moentdb_long_string_fetch_utf_16() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let monetdb =
+            Odbc::connect_with_options(&odbc, monetdb_connection_string().as_str(), Options { utf_16_strings: true }).or_failed_to("connect to MonetDB");
+        let data = monetdb
+            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .or_failed_to("failed to run query")
+            .collect::<Result<Vec<_>, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+    }
     #[test]
     fn test_split_queries() {
         let queries = split_queries(
