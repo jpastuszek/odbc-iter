@@ -788,7 +788,7 @@ mod query {
 
     #[cfg(feature = "test-sql-server")]
     #[test]
-    fn test_sql_server_long_string_fetch() {
+    fn test_sql_server_long_string_fetch_utf_8() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
         let sql_server =
             Odbc::connect(&odbc, sql_server_connection_string().as_str()).or_failed_to("connect to SQL Server");
@@ -803,7 +803,7 @@ mod query {
 
     #[cfg(feature = "test-hive")]
     #[test]
-    fn test_hive_long_string_fetch() {
+    fn test_hive_long_string_fetch_utf_8() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).or_failed_to("connect to Hive");
@@ -818,7 +818,7 @@ mod query {
 
     #[cfg(feature = "test-monetdb")]
     #[test]
-    fn test_moentdb_long_string_fetch() {
+    fn test_moentdb_long_string_fetch_utf_8() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
         let monetdb =
             Odbc::connect(&odbc, monetdb_connection_string().as_str()).or_failed_to("connect to MonetDB");
