@@ -1,14 +1,15 @@
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    self, ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Prepared,
+    ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
 };
+pub use odbc;
 use problem::*;
 use regex::Regex;
 pub use serde_json::value::Value;
 use std::cell::{Ref, RefCell};
-use std::fmt::Display;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 
 /// TODO
@@ -316,11 +317,11 @@ pub struct Binder<'odbc, 't> {
 impl<'odbc, 't> Binder<'odbc, 't> {
     pub fn bind<'new_t, T>(self, value: &'new_t T) -> Result<Binder<'odbc, 'new_t>, Problem>
     where
-        T: OdbcType<'new_t> + Display,
+        T: OdbcType<'new_t> + Debug,
         't: 'new_t,
     {
         let index = self.index + 1;
-        debug!("Parameter {}: {}", index, value);
+        debug!("Parameter {}: {:?}", index, value);
         let statement = self.statement.bind_parameter(index, value).map_problem()?;
 
         Ok(Binder { statement, index })
