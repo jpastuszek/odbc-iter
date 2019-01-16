@@ -124,6 +124,7 @@ where
     V: TryFromRow,
 {
     statement: Option<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::HasResult>>,
+    no_results_statement: Option<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>>,
     odbc_schema: Vec<ColumnDescriptor>,
     schema: V::Schema,
     phantom: PhantomData<V>,
@@ -138,14 +139,14 @@ where
         &self.schema
     }
 
-    pub fn close(self) -> Result<(), Problem> {
+    pub fn close(self) -> Result<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>, Problem> {
         if let Some(statement) = self.statement {
             return statement
                 .close_cursor()
-                .map(|_s| ())
-                .problem_while("closing cursor");
+                .problem_while("closing cursor")
+        } else {
+            Ok(self.no_results_statement.expect("statment or no_results_statement"))
         }
-        Ok(())
     }
 }
 
@@ -378,19 +379,26 @@ impl<'env> Odbc<'env> {
         Ok(Odbc { connection, utf_16_strings: options.utf_16_strings })
     }
 
-    pub fn statement<'odbc>(
+    pub fn prepare<'odbc>(
         &'odbc self,
-    ) -> Result<Statement<'odbc, 'odbc, odbc::Allocated, odbc::NoResult>, Problem> {
-        Statement::with_parent(&self.connection).map_problem()
+        query: &str
+    ) -> Result<Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>, Problem> {
+        debug!("Preparing ODBC query: {}", &query);
+
+        let statement = Statement::with_parent(&self.connection).map_problem()?;
+        statement
+            .prepare(query)
+            .problem_while_with(|| format!("preparing query: '{}'", query))
     }
 
     pub fn query<V>(&self, query: &str) -> Result<RowIter<V>, Problem>
     where
         V: TryFromRow,
     {
+        // TODO: exec_direct here will be faster
         self.query_with_parameters(query, |b| Ok(b))
     }
-
+    
     pub fn query_with_parameters<'t, 'odbc: 't, V, F>(
         &'odbc self,
         query: &str,
@@ -400,18 +408,31 @@ impl<'env> Odbc<'env> {
         V: TryFromRow,
         F: FnOnce(Binder<'odbc, 'odbc>) -> Result<Binder<'odbc, 't>, Problem>,
     {
-        debug!("Running ODBC query: {}", &query);
-        let statement = self.statement()?;
-        let statement = statement
-            .prepare(query)
-            .problem_while_with(|| format!("preparing query: '{}'", query))?;
+        self.execute_with_parameters(self.prepare(query)?, bind)
+    }
 
+    pub fn execute<'odbc, V>(&'odbc self, statement: odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>) -> Result<RowIter<'odbc, V>, Problem>
+    where
+        V: TryFromRow,
+    {
+        self.execute_with_parameters(statement, |b| Ok(b))
+    }
+
+    pub fn execute_with_parameters<'t, 'odbc: 't, V, F>(
+        &'odbc self,
+        statement: odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>,
+        bind: F,
+    ) -> Result<RowIter<V>, Problem>
+    where
+        V: TryFromRow,
+        F: FnOnce(Binder<'odbc, 'odbc>) -> Result<Binder<'odbc, 't>, Problem>,
+    {
         let statement: Statement<'odbc, 't, Prepared, NoResult> = bind(statement.into())
             .problem_while("binding parameters")?
             .into_inner();
 
         statement.execute().map_problem().and_then(|res| {
-            let (odbc_schema, statement) = match res {
+            let (odbc_schema, statement, no_results_statement) = match res {
                 ResultSetState::Data(statement) => {
                     let num_cols = statement.num_result_cols().map_problem()?;
                     let odbc_schema = (1..num_cols + 1)
@@ -429,9 +450,9 @@ impl<'env> Odbc<'env> {
 
                     if num_cols == 0 {
                         // Invalid cursor state.
-                        (odbc_schema, None)
+                        (odbc_schema, None, None)
                     } else {
-                        (odbc_schema, Some(statement))
+                        (odbc_schema, Some(statement), None)
                     }
                 }
                 ResultSetState::NoData(statement) => {
@@ -440,7 +461,8 @@ impl<'env> Odbc<'env> {
                     let odbc_schema = (1..num_cols + 1)
                             .map(|i| statement.describe_col(i as u16))
                             .collect::<Result<Vec<ColumnDescriptor>, _>>().map_problem()?;
-                    (odbc_schema, None)
+                    let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
+                    (odbc_schema, None, Some(statement))
                 }
             };
 
@@ -453,13 +475,14 @@ impl<'env> Odbc<'env> {
             let schema = V::Schema::try_from_odbc_schema(&odbc_schema)?;
 
             Ok(RowIter {
-                statement: statement,
+                statement,
+                no_results_statement,
                 odbc_schema,
                 schema,
                 phantom: PhantomData,
                 utf_16_strings: self.utf_16_strings,
             })
-        }).problem_while_with(|| format!("executing query: '{}'", query))
+        }).problem_while("executing statement")
     }
 
     pub fn query_multiple<'odbc, 'q, 't, V>(
@@ -522,6 +545,7 @@ mod query {
     use assert_matches::assert_matches;
 
     // 600 chars
+    #[cfg(any(feature = "test-sql-server", feature = "test-hive", feature = "test-monetdb"))]
     const LONG_STRING: &'static str = "Lórem ipsum dołor sit amet, cońsectetur adipiścing elit. Fusce risus ipsum, ultricies ac odio ut, vestibulum hendrerit leo. Nunc cursus dapibus mattis. Donec quis est arcu. Sed a tortor sit amet erat euismod pulvinar. Etiam eu erat eget turpis semper finibus. Etiam lobortis egestas diam a consequat. Morbi iaculis lorem sed erat iaculis vehicula. Praesent at porttitor eros. Quisque tincidunt congue ornare. Donec sed nulla a ex sollicitudin lacinia. Fusce ut fermentum tellus, id pretium libero. Donec dapibus faucibus sapien at semper. In id felis sollicitudin, luctus doloź sit amet orci aliquam.";
 
     #[cfg(feature = "test-sql-server")]
