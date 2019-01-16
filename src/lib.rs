@@ -321,7 +321,9 @@ impl<'odbc, 't> Binder<'odbc, 't> {
         't: 'new_t,
     {
         let index = self.index + 1;
-        debug!("Parameter {}: {:?}", index, value);
+        if log_enabled!(::log::Level::Trace) {
+            trace!("Parameter {}: {:?}", index, value);
+        }
         let statement = self.statement.bind_parameter(index, value).map_problem()?;
 
         Ok(Binder { statement, index })
