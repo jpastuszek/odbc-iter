@@ -141,12 +141,13 @@ where
 
     pub fn close(
         self,
-    ) -> Result<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>, Problem> {
+    ) -> Result<PreparedStatement<'odbc>, Problem> {
         if let Some(statement) = self.statement {
-            return statement.close_cursor().problem_while("closing cursor");
+            return statement.close_cursor().map(|s| PreparedStatement(s)).problem_while("closing cursor");
         } else {
             Ok(self
                 .no_results_statement
+                .map(|s| PreparedStatement(s))
                 .expect("statment or no_results_statement"))
         }
     }
