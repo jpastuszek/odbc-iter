@@ -1,10 +1,10 @@
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
+pub use odbc;
 use odbc::{
     ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
 };
-pub use odbc;
 use problem::*;
 use regex::Regex;
 pub use serde_json::value::Value;
@@ -139,13 +139,15 @@ where
         &self.schema
     }
 
-    pub fn close(self) -> Result<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>, Problem> {
+    pub fn close(
+        self,
+    ) -> Result<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>, Problem> {
         if let Some(statement) = self.statement {
-            return statement
-                .close_cursor()
-                .problem_while("closing cursor")
+            return statement.close_cursor().problem_while("closing cursor");
         } else {
-            Ok(self.no_results_statement.expect("statment or no_results_statement"))
+            Ok(self
+                .no_results_statement
+                .expect("statment or no_results_statement"))
         }
     }
 }
@@ -210,8 +212,8 @@ where
                                 }
                                 SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
                                     if utf_16_strings {
-                                        cursor_get_data::<&[u16]>(&mut cursor, index as u16).and_then(
-                                            |value| {
+                                        cursor_get_data::<&[u16]>(&mut cursor, index as u16)
+                                            .and_then(|value| {
                                                 if let Some(bytes) = value {
                                                     String::from_utf16(bytes)
                                                         .map_problem()
@@ -219,8 +221,7 @@ where
                                                 } else {
                                                     Ok(Value::Null)
                                                 }
-                                            },
-                                        )
+                                            })
                                     } else {
                                         cursor_get_value::<String>(&mut cursor, index as u16)
                                     }
@@ -350,8 +351,11 @@ pub struct Odbc<'env> {
 }
 
 pub struct Options {
-    utf_16_strings: bool
+    utf_16_strings: bool,
 }
+
+/// Wrapper around ODBC prepared statement
+pub struct PreparedStatement<'odbc>(Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>);
 
 impl<'env> Odbc<'env> {
     pub fn env() -> Result<EnvironmentV3, Problem> {
@@ -366,29 +370,37 @@ impl<'env> Odbc<'env> {
         env: &'env Environment<Version3>,
         connection_string: &str,
     ) -> Result<Odbc<'env>, Problem> {
-        Self::connect_with_options(env, connection_string, Options { utf_16_strings: false })
+        Self::connect_with_options(
+            env,
+            connection_string,
+            Options {
+                utf_16_strings: false,
+            },
+        )
     }
 
     pub fn connect_with_options(
         env: &'env Environment<Version3>,
         connection_string: &str,
-        options: Options) -> Result<Odbc<'env>, Problem> {
+        options: Options,
+    ) -> Result<Odbc<'env>, Problem> {
         let connection = env
             .connect_with_connection_string(connection_string)
             .map_problem()?;
-        Ok(Odbc { connection, utf_16_strings: options.utf_16_strings })
+        Ok(Odbc {
+            connection,
+            utf_16_strings: options.utf_16_strings,
+        })
     }
 
-    pub fn prepare<'odbc>(
-        &'odbc self,
-        query: &str
-    ) -> Result<Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>, Problem> {
+    pub fn prepare<'odbc>(&'odbc self, query: &str) -> Result<PreparedStatement<'odbc>, Problem> {
         debug!("Preparing ODBC query: {}", &query);
 
         let statement = Statement::with_parent(&self.connection).map_problem()?;
         statement
             .prepare(query)
             .problem_while_with(|| format!("preparing query: '{}'", query))
+            .map(|s| PreparedStatement(s))
     }
 
     pub fn query<V>(&self, query: &str) -> Result<RowIter<V>, Problem>
@@ -398,7 +410,7 @@ impl<'env> Odbc<'env> {
         // TODO: exec_direct here will be faster
         self.query_with_parameters(query, |b| Ok(b))
     }
-    
+
     pub fn query_with_parameters<'t, 'odbc: 't, V, F>(
         &'odbc self,
         query: &str,
@@ -411,7 +423,10 @@ impl<'env> Odbc<'env> {
         self.execute_with_parameters(self.prepare(query)?, bind)
     }
 
-    pub fn execute<'odbc, V>(&'odbc self, statement: odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>) -> Result<RowIter<'odbc, V>, Problem>
+    pub fn execute<'odbc, V>(
+        &'odbc self,
+        statement: PreparedStatement<'odbc>,
+    ) -> Result<RowIter<'odbc, V>, Problem>
     where
         V: TryFromRow,
     {
@@ -420,14 +435,14 @@ impl<'env> Odbc<'env> {
 
     pub fn execute_with_parameters<'t, 'odbc: 't, V, F>(
         &'odbc self,
-        statement: odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>,
+        statement: PreparedStatement<'odbc>,
         bind: F,
     ) -> Result<RowIter<V>, Problem>
     where
         V: TryFromRow,
         F: FnOnce(Binder<'odbc, 'odbc>) -> Result<Binder<'odbc, 't>, Problem>,
     {
-        let statement: Statement<'odbc, 't, Prepared, NoResult> = bind(statement.into())
+        let statement: Statement<'odbc, 't, Prepared, NoResult> = bind(statement.0.into())
             .problem_while("binding parameters")?
             .into_inner();
 
@@ -545,7 +560,11 @@ mod query {
     use assert_matches::assert_matches;
 
     // 600 chars
-    #[cfg(any(feature = "test-sql-server", feature = "test-hive", feature = "test-monetdb"))]
+    #[cfg(any(
+        feature = "test-sql-server",
+        feature = "test-hive",
+        feature = "test-monetdb"
+    ))]
     const LONG_STRING: &'static str = "Lórem ipsum dołor sit amet, cońsectetur adipiścing elit. Fusce risus ipsum, ultricies ac odio ut, vestibulum hendrerit leo. Nunc cursus dapibus mattis. Donec quis est arcu. Sed a tortor sit amet erat euismod pulvinar. Etiam eu erat eget turpis semper finibus. Etiam lobortis egestas diam a consequat. Morbi iaculis lorem sed erat iaculis vehicula. Praesent at porttitor eros. Quisque tincidunt congue ornare. Donec sed nulla a ex sollicitudin lacinia. Fusce ut fermentum tellus, id pretium libero. Donec dapibus faucibus sapien at semper. In id felis sollicitudin, luctus doloź sit amet orci aliquam.";
 
     #[cfg(feature = "test-sql-server")]
@@ -817,8 +836,8 @@ mod query {
     #[test]
     fn test_sql_server_long_string_fetch_utf_8() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let sql_server =
-            Odbc::connect(&odbc, sql_server_connection_string().as_str()).or_failed_to("connect to SQL Server");
+        let sql_server = Odbc::connect(&odbc, sql_server_connection_string().as_str())
+            .or_failed_to("connect to SQL Server");
         let data = sql_server
             .query::<Value>(&format!("SELECT N'{}'", LONG_STRING))
             .or_failed_to("failed to run query")
@@ -847,8 +866,8 @@ mod query {
     #[test]
     fn test_moentdb_long_string_fetch_utf_8() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let monetdb =
-            Odbc::connect(&odbc, monetdb_connection_string().as_str()).or_failed_to("connect to MonetDB");
+        let monetdb = Odbc::connect(&odbc, monetdb_connection_string().as_str())
+            .or_failed_to("connect to MonetDB");
         let data = monetdb
             .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
             .or_failed_to("failed to run query")
@@ -862,8 +881,14 @@ mod query {
     #[test]
     fn test_sql_server_long_string_fetch_utf_16() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let sql_server =
-            Odbc::connect_with_options(&odbc, sql_server_connection_string().as_str(), Options { utf_16_strings: true }).or_failed_to("connect to SQL Server");
+        let sql_server = Odbc::connect_with_options(
+            &odbc,
+            sql_server_connection_string().as_str(),
+            Options {
+                utf_16_strings: true,
+            },
+        )
+        .or_failed_to("connect to SQL Server");
         let data = sql_server
             .query::<Value>(&format!("SELECT N'{}'", LONG_STRING))
             .or_failed_to("failed to run query")
@@ -877,8 +902,14 @@ mod query {
     #[test]
     fn test_hive_long_string_fetch_utf_16() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive =
-            Odbc::connect_with_options(&odbc, hive_connection_string().as_str(), Options { utf_16_strings: true }).or_failed_to("connect to Hive");
+        let hive = Odbc::connect_with_options(
+            &odbc,
+            hive_connection_string().as_str(),
+            Options {
+                utf_16_strings: true,
+            },
+        )
+        .or_failed_to("connect to Hive");
         let data = hive
             .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
             .or_failed_to("failed to run query")
@@ -892,8 +923,14 @@ mod query {
     #[test]
     fn test_moentdb_long_string_fetch_utf_16() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let monetdb =
-            Odbc::connect_with_options(&odbc, monetdb_connection_string().as_str(), Options { utf_16_strings: true }).or_failed_to("connect to MonetDB");
+        let monetdb = Odbc::connect_with_options(
+            &odbc,
+            monetdb_connection_string().as_str(),
+            Options {
+                utf_16_strings: true,
+            },
+        )
+        .or_failed_to("connect to MonetDB");
         let data = monetdb
             .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
             .or_failed_to("failed to run query")
