@@ -16,6 +16,15 @@ use std::marker::PhantomData;
 /// * Use poroper error type
 /// * Use custom Value type but provide From traits for JSON behind feature
 /// * Make tests somehow runable?
+/// * Provide affected_row_count()
+/// * Provide tables()
+/// * Prepared statment .schema()/.num_result_cold()
+/// * Prepared statement cache:
+/// ** db.with_statment_cache() -> StatmentCache
+/// ** sc.query(str) - direct query
+/// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepre + execute; 
+///    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
+/// ** sc.clear() - try close the statments and clear the cache
 
 // https://github.com/rust-lang/rust/issues/49431
 pub trait Captures<'a> {}
