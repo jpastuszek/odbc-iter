@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 pub use odbc;
 use odbc::{
-    ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Prepared,
+    ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Allocated, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
 };
 use problem::*;
@@ -119,26 +119,80 @@ impl TryFromRow for Value {
 }
 
 /// Iterate rows converting them to given value type
-pub struct RowIter<'odbc, V>
+pub struct RowIter<'odbc, V, S>
 where
-    V: TryFromRow,
+    V: TryFromRow
 {
-    statement: Option<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::HasResult>>,
-    no_results_statement: Option<odbc::Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>>,
+    statement: Option<odbc::Statement<'odbc, 'odbc, S, odbc::HasResult>>,
+    no_results_statement: Option<odbc::Statement<'odbc, 'odbc, S, odbc::NoResult>>,
     odbc_schema: Vec<ColumnDescriptor>,
     schema: V::Schema,
     phantom: PhantomData<V>,
     utf_16_strings: bool,
 }
 
-impl<'odbc, V> RowIter<'odbc, V>
+impl<'odbc, V, S> RowIter<'odbc, V, S>
 where
     V: TryFromRow,
 {
+    fn from_result<'t>(result: ResultSetState<'odbc, 't, S>, utf_16_strings: bool) -> Result<RowIter<'odbc, V, S>, Problem> {
+        let (odbc_schema, statement, no_results_statement) = match result {
+            ResultSetState::Data(statement) => {
+                let num_cols = statement.num_result_cols().map_problem()?;
+                let odbc_schema = (1..num_cols + 1)
+                        .map(|i| statement.describe_col(i as u16))
+                        .collect::<Result<Vec<ColumnDescriptor>, _>>().map_problem()?;
+                let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
+
+                if log_enabled!(::log::Level::Debug) {
+                    if odbc_schema.len() == 0 {
+                        debug!("Got empty data set");
+                    } else {
+                        debug!("Got data with columns: {}", odbc_schema.iter().map(|cd| cd.name.clone()).collect::<Vec<String>>().join(", "));
+                    }
+                }
+
+                if num_cols == 0 {
+                    // Invalid cursor state.
+                    (odbc_schema, None, None)
+                } else {
+                    (odbc_schema, Some(statement), None)
+                }
+            }
+            ResultSetState::NoData(statement) => {
+                debug!("No data");
+                let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
+                (Vec::new(), None, Some(statement))
+            }
+        };
+
+        if log_enabled!(::log::Level::Trace) {
+            for cd in &odbc_schema {
+                trace!("ODBC query result schema: {} [{:?}] size: {:?} nullable: {:?} decimal_digits: {:?}", cd.name, cd.data_type, cd.column_size, cd.nullable, cd.decimal_digits);
+            }
+        }
+
+        let schema = V::Schema::try_from_odbc_schema(&odbc_schema)?;
+
+        Ok(RowIter {
+            statement,
+            no_results_statement,
+            odbc_schema,
+            schema,
+            phantom: PhantomData,
+            utf_16_strings,
+        })
+    }
+
     pub fn schema(&self) -> &V::Schema {
         &self.schema
     }
+}
 
+impl<'odbc, V> RowIter<'odbc, V, Prepared>
+where
+    V: TryFromRow,
+{
     pub fn close(
         self,
     ) -> Result<PreparedStatement<'odbc>, Problem> {
@@ -153,7 +207,21 @@ where
     }
 }
 
-impl<'odbc, V> Iterator for RowIter<'odbc, V>
+impl<'odbc, V> RowIter<'odbc, V, Allocated>
+where
+    V: TryFromRow,
+{
+    pub fn close(
+        self,
+    ) -> Result<(), Problem> {
+        if let Some(statement) = self.statement {
+            statement.close_cursor().problem_while("closing cursor")?;
+        }
+        Ok(())
+    }
+}
+
+impl<'odbc, V, S> Iterator for RowIter<'odbc, V, S>
 where
     V: TryFromRow,
 {
@@ -162,8 +230,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         use odbc_sys::SqlDataType::*;
 
-        fn cursor_get_data<'i, T: odbc::OdbcType<'i>>(
-            cursor: &'i mut odbc::Cursor<odbc::Prepared>,
+        fn cursor_get_data<'i, S, T: odbc::OdbcType<'i>>(
+            cursor: &'i mut odbc::Cursor<S>,
             index: u16,
         ) -> Result<Option<T>, Problem> {
             cursor.get_data::<T>(index + 1).map_problem()
@@ -173,11 +241,11 @@ where
             value.map(Into::into).unwrap_or(Value::Null)
         }
 
-        fn cursor_get_value<'i, T: odbc::OdbcType<'i> + Into<Value>>(
-            cursor: &'i mut odbc::Cursor<odbc::Prepared>,
+        fn cursor_get_value<'i, S, T: odbc::OdbcType<'i> + Into<Value>>(
+            cursor: &'i mut odbc::Cursor<S>,
             index: u16,
         ) -> Result<Value, Problem> {
-            cursor_get_data::<T>(cursor, index).map(into_value)
+            cursor_get_data::<S, T>(cursor, index).map(into_value)
         }
 
         if self.statement.is_none() {
@@ -198,22 +266,22 @@ where
                             // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
                             match column_descriptor.data_type {
                                 SQL_EXT_TINYINT => {
-                                    cursor_get_value::<i8>(&mut cursor, index as u16)
+                                    cursor_get_value::<S, i8>(&mut cursor, index as u16)
                                 }
-                                SQL_SMALLINT => cursor_get_value::<i16>(&mut cursor, index as u16),
-                                SQL_INTEGER => cursor_get_value::<i32>(&mut cursor, index as u16),
+                                SQL_SMALLINT => cursor_get_value::<S, i16>(&mut cursor, index as u16),
+                                SQL_INTEGER => cursor_get_value::<S, i32>(&mut cursor, index as u16),
                                 SQL_EXT_BIGINT => {
-                                    cursor_get_value::<i64>(&mut cursor, index as u16)
+                                    cursor_get_value::<S, i64>(&mut cursor, index as u16)
                                 }
-                                SQL_FLOAT => cursor_get_value::<f32>(&mut cursor, index as u16),
-                                SQL_REAL => cursor_get_value::<f32>(&mut cursor, index as u16),
-                                SQL_DOUBLE => cursor_get_value::<f64>(&mut cursor, index as u16),
+                                SQL_FLOAT => cursor_get_value::<S, f32>(&mut cursor, index as u16),
+                                SQL_REAL => cursor_get_value::<S, f32>(&mut cursor, index as u16),
+                                SQL_DOUBLE => cursor_get_value::<S, f64>(&mut cursor, index as u16),
                                 SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
-                                    cursor_get_value::<String>(&mut cursor, index as u16)
+                                    cursor_get_value::<S, String>(&mut cursor, index as u16)
                                 }
                                 SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
                                     if utf_16_strings {
-                                        cursor_get_data::<&[u16]>(&mut cursor, index as u16)
+                                        cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)
                                             .and_then(|value| {
                                                 if let Some(bytes) = value {
                                                     String::from_utf16(bytes)
@@ -224,11 +292,11 @@ where
                                                 }
                                             })
                                     } else {
-                                        cursor_get_value::<String>(&mut cursor, index as u16)
+                                        cursor_get_value::<S, String>(&mut cursor, index as u16)
                                     }
                                 }
                                 SQL_TIMESTAMP => {
-                                    cursor_get_data::<SqlTimestamp>(&mut cursor, index as u16)
+                                    cursor_get_data::<S, SqlTimestamp>(&mut cursor, index as u16)
                                         .and_then(|value| {
                                             if let Some(timestamp) = value {
                                                 trace!("{:?}", timestamp);
@@ -247,7 +315,7 @@ where
                                             }
                                         })
                                 }
-                                SQL_DATE => cursor_get_data::<SqlDate>(&mut cursor, index as u16)
+                                SQL_DATE => cursor_get_data::<S, SqlDate>(&mut cursor, index as u16)
                                     .and_then(|value| {
                                         if let Some(date) = value {
                                             trace!("{:?}", date);
@@ -259,7 +327,7 @@ where
                                             Ok(Value::Null)
                                         }
                                     }),
-                                SQL_TIME => cursor_get_data::<SqlTime>(&mut cursor, index as u16)
+                                SQL_TIME => cursor_get_data::<S, SqlTime>(&mut cursor, index as u16)
                                     .and_then(|value| {
                                         if let Some(time) = value {
                                             trace!("{:?}", time);
@@ -272,7 +340,7 @@ where
                                         }
                                     }),
                                 SQL_SS_TIME2 => {
-                                    cursor_get_data::<SqlSsTime2>(&mut cursor, index as u16)
+                                    cursor_get_data::<S, SqlSsTime2>(&mut cursor, index as u16)
                                         .and_then(|value| {
                                             if let Some(time) = value {
                                                 trace!("{:?}", time);
@@ -288,7 +356,7 @@ where
                                             }
                                         })
                                 }
-                                SQL_EXT_BIT => cursor_get_data::<u8>(&mut cursor, index as u16)
+                                SQL_EXT_BIT => cursor_get_data::<S, u8>(&mut cursor, index as u16)
                                     .map(|byte| {
                                         if let Some(byte) = byte {
                                             Value::Bool(if byte == 0 { false } else { true })
@@ -312,13 +380,13 @@ where
     }
 }
 
-pub struct Binder<'odbc, 't> {
-    statement: Statement<'odbc, 't, Prepared, NoResult>,
+pub struct Binder<'odbc, 't, S> {
+    statement: Statement<'odbc, 't, S, NoResult>,
     index: u16,
 }
 
-impl<'odbc, 't> Binder<'odbc, 't> {
-    pub fn bind<'new_t, T>(self, value: &'new_t T) -> Result<Binder<'odbc, 'new_t>, Problem>
+impl<'odbc, 't, S> Binder<'odbc, 't, S> {
+    pub fn bind<'new_t, T>(self, value: &'new_t T) -> Result<Binder<'odbc, 'new_t, S>, Problem>
     where
         T: OdbcType<'new_t> + Debug,
         't: 'new_t,
@@ -332,13 +400,13 @@ impl<'odbc, 't> Binder<'odbc, 't> {
         Ok(Binder { statement, index })
     }
 
-    fn into_inner(self) -> Statement<'odbc, 't, Prepared, NoResult> {
+    fn into_inner(self) -> Statement<'odbc, 't, S, NoResult> {
         self.statement
     }
 }
 
-impl<'odbc, 't> From<Statement<'odbc, 'odbc, Prepared, NoResult>> for Binder<'odbc, 'odbc> {
-    fn from(statement: Statement<'odbc, 'odbc, Prepared, NoResult>) -> Binder<'odbc, 'odbc> {
+impl<'odbc, 't, S> From<Statement<'odbc, 'odbc, S, NoResult>> for Binder<'odbc, 'odbc, S> {
+    fn from(statement: Statement<'odbc, 'odbc, S, NoResult>) -> Binder<'odbc, 'odbc, S> {
         Binder {
             statement,
             index: 0,
@@ -404,7 +472,7 @@ impl<'env> Odbc<'env> {
             .map(|s| PreparedStatement(s))
     }
 
-    pub fn query<V>(&self, query: &str) -> Result<RowIter<V>, Problem>
+    pub fn query<V>(&self, query: &str) -> Result<RowIter<V, Allocated>, Problem>
     where
         V: TryFromRow,
     {
@@ -416,18 +484,25 @@ impl<'env> Odbc<'env> {
         &'odbc self,
         query: &str,
         bind: F,
-    ) -> Result<RowIter<V>, Problem>
+    ) -> Result<RowIter<V, Allocated>, Problem>
     where
         V: TryFromRow,
-        F: FnOnce(Binder<'odbc, 'odbc>) -> Result<Binder<'odbc, 't>, Problem>,
+        F: FnOnce(Binder<'odbc, 'odbc, Allocated>) -> Result<Binder<'odbc, 't, Allocated>, Problem>,
     {
-        self.execute_with_parameters(self.prepare(query)?, bind)
+        debug!("Direct ODBC query: {}", &query);
+
+        let statement = Statement::with_parent(&self.connection).map_problem()?;
+        let statement: Statement<'odbc, 't, Allocated, NoResult> = bind(statement.into())
+            .problem_while("binding parameters")?
+            .into_inner();
+
+        RowIter::from_result(statement.exec_direct(query).problem_while("executing direct statement")?, self.utf_16_strings)
     }
 
     pub fn execute<'odbc, V>(
         &'odbc self,
         statement: PreparedStatement<'odbc>,
-    ) -> Result<RowIter<'odbc, V>, Problem>
+    ) -> Result<RowIter<'odbc, V, Prepared>, Problem>
     where
         V: TryFromRow,
     {
@@ -438,73 +513,22 @@ impl<'env> Odbc<'env> {
         &'odbc self,
         statement: PreparedStatement<'odbc>,
         bind: F,
-    ) -> Result<RowIter<V>, Problem>
+    ) -> Result<RowIter<V, Prepared>, Problem>
     where
         V: TryFromRow,
-        F: FnOnce(Binder<'odbc, 'odbc>) -> Result<Binder<'odbc, 't>, Problem>,
+        F: FnOnce(Binder<'odbc, 'odbc, Prepared>) -> Result<Binder<'odbc, 't, Prepared>, Problem>,
     {
         let statement: Statement<'odbc, 't, Prepared, NoResult> = bind(statement.0.into())
             .problem_while("binding parameters")?
             .into_inner();
 
-        statement.execute().map_problem().and_then(|res| {
-            let (odbc_schema, statement, no_results_statement) = match res {
-                ResultSetState::Data(statement) => {
-                    let num_cols = statement.num_result_cols().map_problem()?;
-                    let odbc_schema = (1..num_cols + 1)
-                            .map(|i| statement.describe_col(i as u16))
-                            .collect::<Result<Vec<ColumnDescriptor>, _>>().map_problem()?;
-                    let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
-
-                    if log_enabled!(::log::Level::Debug) {
-                        if odbc_schema.len() == 0 {
-                            debug!("Got empty data set");
-                        } else {
-                            debug!("Got data with columns: {}", odbc_schema.iter().map(|cd| cd.name.clone()).collect::<Vec<String>>().join(", "));
-                        }
-                    }
-
-                    if num_cols == 0 {
-                        // Invalid cursor state.
-                        (odbc_schema, None, None)
-                    } else {
-                        (odbc_schema, Some(statement), None)
-                    }
-                }
-                ResultSetState::NoData(statement) => {
-                    debug!("No data");
-                    let num_cols = statement.num_result_cols().map_problem()?;
-                    let odbc_schema = (1..num_cols + 1)
-                            .map(|i| statement.describe_col(i as u16))
-                            .collect::<Result<Vec<ColumnDescriptor>, _>>().map_problem()?;
-                    let statement = statement.reset_parameters().map_problem()?; // don't refrence parameter data any more
-                    (odbc_schema, None, Some(statement))
-                }
-            };
-
-            if log_enabled!(::log::Level::Trace) {
-                for cd in &odbc_schema {
-                    trace!("ODBC query result schema: {} [{:?}] size: {:?} nullable: {:?} decimal_digits: {:?}", cd.name, cd.data_type, cd.column_size, cd.nullable, cd.decimal_digits);
-                }
-            }
-
-            let schema = V::Schema::try_from_odbc_schema(&odbc_schema)?;
-
-            Ok(RowIter {
-                statement,
-                no_results_statement,
-                odbc_schema,
-                schema,
-                phantom: PhantomData,
-                utf_16_strings: self.utf_16_strings,
-            })
-        }).problem_while("executing statement")
+        RowIter::from_result(statement.execute().problem_while("executing statement")?, self.utf_16_strings)
     }
 
     pub fn query_multiple<'odbc, 'q, 't, V>(
         &'odbc self,
         queries: &'q str,
-    ) -> impl Iterator<Item = Result<RowIter<V>, Problem>> + Captures<'t> + Captures<'env>
+    ) -> impl Iterator<Item = Result<RowIter<V, Allocated>, Problem>> + Captures<'t> + Captures<'env>
     where
         'env: 'odbc,
         'env: 't,
@@ -781,12 +805,12 @@ mod query {
     #[test]
     fn test_sql_server_query_with_parameters() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
-            .or_failed_to("connect to Hive");
+        let db = Odbc::connect(&odbc, sql_server_connection_string().as_str())
+            .or_failed_to("connect to SQL Server");
 
         let val = 42;
 
-        let foo: Vec<Foo> = hive
+        let foo: Vec<Foo> = db
             .query_with_parameters("SELECT ? AS val;", |q| q.bind(&val))
             .or_failed_to("failed to run query")
             .collect::<Result<_, Problem>>()
@@ -799,12 +823,12 @@ mod query {
     #[test]
     fn test_sql_server_query_with_many_parameters() {
         let odbc = Odbc::env().or_failed_to("open ODBC");
-        let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
-            .or_failed_to("connect to Hive");
+        let db = Odbc::connect(&odbc, sql_server_connection_string().as_str())
+            .or_failed_to("connect to SQL Server");
 
         let val = [42, 24, 32, 666];
 
-        let data: Vec<Value> = hive
+        let data: Vec<Value> = db
             .query_with_parameters("SELECT ?, ?, ?, ? AS val;", |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
             })
@@ -817,6 +841,32 @@ mod query {
         assert_matches!(data[0][2], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(32)));
         assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(666)));
     }
+
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_query_with_many_parameters_prepared() {
+        let odbc = Odbc::env().or_failed_to("open ODBC");
+        let db = Odbc::connect(&odbc, sql_server_connection_string().as_str())
+            .or_failed_to("connect to SQL Server");
+
+        let val = [42, 24, 32, 666];
+
+        let statement = db.prepare("SELECT ?, ?, ?, ? AS val;").or_failed_to("prepare statement");
+
+        let data: Vec<Value> = db
+            .execute_with_parameters(statement, |q| {
+                val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
+            })
+            .or_failed_to("failed to run query")
+            .collect::<Result<_, Problem>>()
+            .or_failed_to("fetch data");
+
+        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(42)));
+        assert_matches!(data[0][1], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
+        assert_matches!(data[0][2], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(32)));
+        assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(666)));
+    }
+
 
     #[cfg(feature = "test-hive")]
     #[test]
