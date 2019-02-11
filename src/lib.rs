@@ -77,6 +77,7 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcIterError {
 }
 
 //TODO: remove OdbcIter prefix
+//TODO: split RowIter error from this (FromRowError, DataAccessError)
 #[derive(Debug)]
 pub enum OdbcIterQueryError<R, S> {
     MultipleQueriesError(SplitQueriesError),
@@ -231,21 +232,33 @@ pub type Schema = Vec<ColumnDescriptor>;
 //     }
 // }
 
+//TODO: use novalue type when one is stable
+#[derive(Debug)]
+pub struct NoError;
+
+impl fmt::Display for NoError {
+    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
+        panic!("unexpected error")
+    }
+}
+
+impl Error for NoError {}
+
 /// Convert from ODBC schema to other type of schema
 pub trait TryFromSchema: Sized {
-    type Error;
+    type Error: Error + 'static;
     fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error>;
 }
 
 impl TryFromSchema for () {
-    type Error = ();
+    type Error = NoError;
     fn try_from_schema(_schema: &Schema) -> Result<Self, Self::Error> {
         Ok(())
     }
 }
 
 impl TryFromSchema for Schema {
-    type Error = ();
+    type Error = NoError;
     fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error> {
         Ok(schema.clone())
     }
@@ -255,13 +268,13 @@ impl TryFromSchema for Schema {
 pub trait TryFromRow: Sized {
     /// Type of shema for the target value
     type Schema: TryFromSchema;
-    type Error;
+    type Error: Error + 'static;
     fn try_from_row(values: Values, schema: &Self::Schema) -> Result<Self, Self::Error>;
 }
 
 impl TryFromRow for Values {
     type Schema = Schema;
-    type Error = ();
+    type Error = NoError;
     fn try_from_row(values: Values, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values)
     }
@@ -269,7 +282,7 @@ impl TryFromRow for Values {
 
 impl TryFromRow for Value {
     type Schema = Schema;
-    type Error = ();
+    type Error = NoError;
     fn try_from_row(values: Values, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values.into())
     }
@@ -931,8 +944,8 @@ mod query {
 
     impl TryFromRow for Foo {
         type Schema = Schema;
-        type Error = ();
-        fn try_from_row(mut values: Values, _schema: &Schema) -> Result<Self, ()> {
+        type Error = NoError;
+        fn try_from_row(mut values: Values, _schema: &Schema) -> Result<Self, NoError> {
             Ok(values.pop().map(|val| Foo {
                 val: val.as_i64().expect("val to be a number"),
             }).expect("value"))
