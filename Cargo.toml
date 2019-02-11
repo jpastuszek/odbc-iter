@@ -22,6 +22,8 @@ log = "0.4.6"
 ### for odbc-query
 cotton = { git = "https://github.com/jpastuszek/cotton.git" }
 structopt = "0.2.14"
+#error-context = { git = "https://github.com/jpastuszek/error-context" }
+error-context = { path = "../error-context" }
 
 [dev-dependencies]
 assert_matches = "1.3.0"

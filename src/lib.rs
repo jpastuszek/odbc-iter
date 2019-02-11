@@ -3,7 +3,7 @@ use log::{debug, log_enabled, trace};
 pub use odbc;
 use odbc::{
     ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Allocated, Prepared,
-    ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
+    ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3, DiagnosticRecord
 };
 use problem::*;
 use regex::Regex;
@@ -11,6 +11,9 @@ pub use serde_json::value::Value;
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use error_context::prelude::*;
+use std::fmt;
+use std::error::Error;
 
 /// TODO
 /// * Use poroper error type
@@ -32,6 +35,46 @@ impl<'a, T: ?Sized> Captures<'a> for T {}
 
 pub trait Captures2<'a> {}
 impl<'a, T: ?Sized> Captures2<'a> for T {}
+
+#[derive(Debug)]
+pub enum OdbcIterError {
+    OdbcError(Option<DiagnosticRecord>, &'static str),
+    NotConnectedError,
+}
+
+impl fmt::Display for OdbcIterError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            OdbcIterError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
+            OdbcIterError::NotConnectedError => write!(f, "not connected to database"),
+        }
+    }
+}
+
+impl Error for OdbcIterError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        fn to_dyn(diag: &Option<DiagnosticRecord>) -> Option<&(dyn Error + 'static)> {
+            diag.as_ref().map(|e| e as &(dyn Error + 'static))
+        }
+
+        match self {
+            OdbcIterError::OdbcError(diag, _) => to_dyn(diag),
+            OdbcIterError::NotConnectedError => None,
+        }
+    }  
+}
+
+impl From<ErrorContext<Option<DiagnosticRecord>, &'static str>> for OdbcIterError {
+    fn from(err: ErrorContext<Option<DiagnosticRecord>, &'static str>) -> OdbcIterError {
+        OdbcIterError::OdbcError(err.error, err.context)
+    }
+}
+
+impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcIterError {
+    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> OdbcIterError {
+        OdbcIterError::OdbcError(Some(err.error), err.context)
+    }
+}
 
 pub type EnvironmentV3 = Environment<Version3>;
 pub type Values = Vec<Value>;
@@ -436,18 +479,18 @@ pub struct Options {
 pub struct PreparedStatement<'odbc>(Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>);
 
 impl<'env> Odbc<'env> {
-    pub fn env() -> Result<EnvironmentV3, Problem> {
-        odbc::create_environment_v3().map_problem()
+    pub fn env() -> Result<EnvironmentV3, OdbcIterError> {
+        odbc::create_environment_v3().wrap_error_while("creating v3 environment").map_err(Into::into)
     }
 
-    pub fn list_drivers(odbc: &mut Environment<Version3>) -> Result<Vec<DriverInfo>, Problem> {
-        odbc.drivers().map_problem()
+    pub fn list_drivers(odbc: &mut Environment<Version3>) -> Result<Vec<DriverInfo>, OdbcIterError> {
+        odbc.drivers().wrap_error_while("listing drivers").map_err(Into::into)
     }
 
     pub fn connect(
         env: &'env Environment<Version3>,
         connection_string: &str,
-    ) -> Result<Odbc<'env>, Problem> {
+    ) -> Result<Odbc<'env>, OdbcIterError> {
         Self::connect_with_options(
             env,
             connection_string,
@@ -461,10 +504,10 @@ impl<'env> Odbc<'env> {
         env: &'env Environment<Version3>,
         connection_string: &str,
         options: Options,
-    ) -> Result<Odbc<'env>, Problem> {
+    ) -> Result<Odbc<'env>, OdbcIterError> {
         let connection = env
             .connect_with_connection_string(connection_string)
-            .map_problem()?;
+            .wrap_error_while("connecting to database")?;
         Ok(Odbc {
             connection,
             utf_16_strings: options.utf_16_strings,
@@ -563,14 +606,14 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, Problem
 thread_local! {
     // Leaking ODBC handle per thread should be OK...ish assuming a thread pool is used?
     static ODBC: &'static EnvironmentV3 = Box::leak(Box::new(Odbc::env().or_failed_to("Initialize ODBC")));
-    static DB: RefCell<Result<Odbc<'static>, Problem>> = RefCell::new(Err(Problem::cause("Not connected")));
+    static DB: RefCell<Result<Odbc<'static>, OdbcIterError>> = RefCell::new(Err(OdbcIterError::NotConnectedError));
 }
 
 /// Access to thread local connection
 /// Connection will be astablished only once if successful or any time this function is called again after it failed to connect prevously
 pub fn thread_local_connection_with<O>(
     connection_string: &str,
-    f: impl Fn(Ref<Result<Odbc<'static>, Problem>>) -> O,
+    f: impl Fn(Ref<Result<Odbc<'static>, OdbcIterError>>) -> O,
 ) -> O {
     DB.with(|db| {
         {
