@@ -17,14 +17,14 @@ use std::string::FromUtf16Error;
 
 /// TODO
 /// * Use custom Value type but provide From traits for JSON behind feature
-/// * Make tests somehow runable?
+/// * Make tests somehow runnable?
 /// * Provide affected_row_count()
 /// * Provide tables()
 /// * Prepared statement .schema()/.num_result_cold()
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
-/// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepre + execute; 
+/// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepare + execute; 
 ///    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
 /// ** sc.clear() - try close the statement and clear the cache
 /// * Replace unit errors with never type when stable
@@ -234,7 +234,7 @@ pub type Schema = Vec<ColumnDescriptor>;
 //     }
 // }
 
-//TODO: use novalue type when one is stable
+//TODO: use ! type when it is stable
 #[derive(Debug)]
 pub struct NoError;
 
@@ -314,7 +314,7 @@ where
                 let odbc_schema = (1..num_cols + 1)
                         .map(|i| statement.describe_col(i as u16))
                         .collect::<Result<Vec<ColumnDescriptor>, _>>().wrap_error_while("getting column descriptiors")?;
-                let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't refrence parameter data any more
+                let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't reference parameter data any more
 
                 if log_enabled!(::log::Level::Debug) {
                     if odbc_schema.len() == 0 {
@@ -333,7 +333,7 @@ where
             }
             ResultSetState::NoData(statement) => {
                 debug!("No data");
-                let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't refrence parameter data any more
+                let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't reference parameter data any more
                 (Vec::new(), None, Some(statement))
             }
         };
@@ -719,7 +719,7 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQu
         .map(|r| r.map(|m| m.as_str()))
 }
 
-// Note: odbc-sys stuff is not Sent and therfore we need to create objects per thread
+// Note: odbc-sys stuff is not Sent and therefore we need to create objects per thread
 thread_local! {
     // Leaking ODBC handle per thread should be OK...ish assuming a thread pool is used?
     static ODBC: &'static EnvironmentV3 = Box::leak(Box::new(Odbc::env().expect("Failed to initialize ODBC")));
@@ -727,7 +727,7 @@ thread_local! {
 }
 
 /// Access to thread local connection
-/// Connection will be astablished only once if successful or any time this function is called again after it failed to connect prevously
+/// Connection will be established only once if successful or any time this function is called again after it failed to connect previously
 pub fn thread_local_connection_with<O>(
     connection_string: &str,
     f: impl Fn(Ref<Result<Odbc<'static>, OdbcError>>) -> O,
