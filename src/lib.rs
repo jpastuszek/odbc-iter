@@ -81,6 +81,7 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
 #[derive(Debug)]
 pub enum QueryError<R, S> {
     OdbcError(DiagnosticRecord, &'static str),
+    BindError(DiagnosticRecord),
     FromSchemaError(S),
     MultipleQueriesError(SplitQueriesError),
     DataAccessError(DataAccessError<R>, &'static str),
@@ -90,6 +91,7 @@ impl<R, S> fmt::Display for QueryError<R, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             QueryError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
+            QueryError::BindError(_) => write!(f, "ODBC call failed while binding parameter to statement"),
             QueryError::FromSchemaError(_) => write!(f, "failed to convert table schema to target type"),
             QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
             QueryError::DataAccessError(_, context) => write!(f, "failed to access result data while {}", context),
@@ -101,6 +103,7 @@ impl<R, S> Error for QueryError<R, S> where R: Error + 'static, S: Error + 'stat
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             QueryError::OdbcError(err, _) => Some(err),
+            QueryError::BindError(err) => Some(err),
             QueryError::FromSchemaError(err) => Some(err),
             QueryError::MultipleQueriesError(err) => Some(err),
             QueryError::DataAccessError(err, _) => Some(err),
@@ -108,15 +111,21 @@ impl<R, S> Error for QueryError<R, S> where R: Error + 'static, S: Error + 'stat
     }  
 }
 
-impl<R, S> From<SplitQueriesError> for QueryError<R, S> {
-    fn from(err: SplitQueriesError) -> QueryError<R, S> {
-        QueryError::MultipleQueriesError(err)
-    }
-}
-
 impl<R, S> From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError<R, S> {
     fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> QueryError<R, S> {
         QueryError::OdbcError(err.error, err.context)
+    }
+}
+
+impl<R, S> From<BindError> for QueryError<R, S> {
+    fn from(err: BindError) -> QueryError<R, S> {
+        QueryError::BindError(err.0)
+    }
+}
+
+impl<R, S> From<SplitQueriesError> for QueryError<R, S> {
+    fn from(err: SplitQueriesError) -> QueryError<R, S> {
+        QueryError::MultipleQueriesError(err)
     }
 }
 
@@ -174,6 +183,29 @@ impl<R> From<ErrorContext<DiagnosticRecord, &'static str>> for DataAccessError<R
 impl<R> From<ErrorContext<FromUtf16Error, &'static str>> for DataAccessError<R> {
     fn from(err: ErrorContext<FromUtf16Error, &'static str>) -> DataAccessError<R> {
         DataAccessError::FromUtf16Error(err.error, err.context)
+    }
+}
+
+// Avoid leaking DiagnosticRecord as required public interface
+/// Error returned by bind closure
+#[derive(Debug)]
+pub struct BindError(DiagnosticRecord);
+
+impl fmt::Display for BindError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ODBC call failed while while binding parameter")
+    }
+}
+
+impl Error for BindError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.0)
+    }  
+}
+
+impl From<DiagnosticRecord> for BindError {
+    fn from(err: DiagnosticRecord) -> BindError {
+        BindError(err)
     }
 }
 
@@ -542,7 +574,7 @@ pub struct Binder<'odbc, 't, S> {
 }
 
 impl<'odbc, 't, S> Binder<'odbc, 't, S> {
-    pub fn bind<'new_t, T>(self, value: &'new_t T) -> Result<Binder<'odbc, 'new_t, S>, DiagnosticRecord>
+    pub fn bind<'new_t, T>(self, value: &'new_t T) -> Result<Binder<'odbc, 'new_t, S>, BindError>
     where
         T: OdbcType<'new_t> + Debug,
         't: 'new_t,
@@ -643,15 +675,14 @@ impl<'env> Odbc<'env> {
     ) -> Result<RowIter<V, Allocated>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
     where
         V: TryFromRow,
-        F: FnOnce(Binder<'odbc, 'odbc, Allocated>) -> Result<Binder<'odbc, 't, Allocated>, DiagnosticRecord>,
+        F: FnOnce(Binder<'odbc, 'odbc, Allocated>) -> Result<Binder<'odbc, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
 
         let statement = Statement::with_parent(&self.connection)
             .wrap_error_while("pairing statement with connection")?;
 
-        let statement: Statement<'odbc, 't, Allocated, NoResult> = bind(statement.into())
-            .wrap_error_while("binding parameter to statement")?
+        let statement: Statement<'odbc, 't, Allocated, NoResult> = bind(statement.into())?
             .into_inner();
 
         RowIter::from_result(statement.exec_direct(query).wrap_error_while("executing direct statement")?, self.utf_16_strings)
@@ -674,10 +705,9 @@ impl<'env> Odbc<'env> {
     ) -> Result<RowIter<V, Prepared>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
     where
         V: TryFromRow,
-        F: FnOnce(Binder<'odbc, 'odbc, Prepared>) -> Result<Binder<'odbc, 't, Prepared>, DiagnosticRecord>,
+        F: FnOnce(Binder<'odbc, 'odbc, Prepared>) -> Result<Binder<'odbc, 't, Prepared>, BindError>,
     {
-        let statement: Statement<'odbc, 't, Prepared, NoResult> = bind(statement.0.into())
-            .wrap_error_while("binding parameter to statement")?
+        let statement: Statement<'odbc, 't, Prepared, NoResult> = bind(statement.0.into())?
             .into_inner();
 
         RowIter::from_result(statement.execute().wrap_error_while("executing statement")?, self.utf_16_strings)
