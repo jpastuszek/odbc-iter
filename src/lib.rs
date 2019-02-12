@@ -20,13 +20,13 @@ use std::string::FromUtf16Error;
 /// * Make tests somehow runable?
 /// * Provide affected_row_count()
 /// * Provide tables()
-/// * Prepared statment .schema()/.num_result_cold()
+/// * Prepared statement .schema()/.num_result_cold()
 /// * Prepared statement cache:
-/// ** db.with_statment_cache() -> StatmentCache
+/// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
 /// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepre + execute; 
 ///    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
-/// ** sc.clear() - try close the statments and clear the cache
+/// ** sc.clear() - try close the statement and clear the cache
 /// * Replace unit errors with never type when stable
 
 // https://github.com/rust-lang/rust/issues/49431
@@ -36,6 +36,7 @@ impl<'a, T: ?Sized> Captures<'a> for T {}
 pub trait Captures2<'a> {}
 impl<'a, T: ?Sized> Captures2<'a> for T {}
 
+/// General ODBC initialization and connection errors
 #[derive(Debug)]
 pub enum OdbcError {
     OdbcError(Option<DiagnosticRecord>, &'static str),
@@ -76,24 +77,21 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
     }
 }
 
-//TODO: remove OdbcIter prefix
-//TODO: split RowIter error from this (FromRowError, DataAccessError)
+/// Errors related to query execution
 #[derive(Debug)]
 pub enum QueryError<R, S> {
-    MultipleQueriesError(SplitQueriesError),
-    FromRowError(R),
-    FromSchemaError(S),
     OdbcError(DiagnosticRecord, &'static str),
-    DataAccessError(DataAccessError, &'static str),
+    FromSchemaError(S),
+    MultipleQueriesError(SplitQueriesError),
+    DataAccessError(DataAccessError<R>, &'static str),
 }
 
 impl<R, S> fmt::Display for QueryError<R, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
-            QueryError::FromRowError(_) => write!(f, "failed to convert table row to target type"),
-            QueryError::FromSchemaError(_) => write!(f, "failed to convert table schema to target type"),
             QueryError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
+            QueryError::FromSchemaError(_) => write!(f, "failed to convert table schema to target type"),
+            QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
             QueryError::DataAccessError(_, context) => write!(f, "failed to access result data while {}", context),
         }
     }
@@ -102,10 +100,9 @@ impl<R, S> fmt::Display for QueryError<R, S> {
 impl<R, S> Error for QueryError<R, S> where R: Error + 'static, S: Error + 'static {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            QueryError::MultipleQueriesError(err) => Some(err),
-            QueryError::FromRowError(err) => Some(err),
-            QueryError::FromSchemaError(err) => Some(err),
             QueryError::OdbcError(err, _) => Some(err),
+            QueryError::FromSchemaError(err) => Some(err),
+            QueryError::MultipleQueriesError(err) => Some(err),
             QueryError::DataAccessError(err, _) => Some(err),
         }
     }  
@@ -123,54 +120,59 @@ impl<R, S> From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError<R, 
     }
 }
 
-impl<R, S> From<ErrorContext<DataAccessError, &'static str>> for QueryError<R, S> {
-    fn from(err: ErrorContext<DataAccessError, &'static str>) -> QueryError<R, S> {
+impl<R, S> From<ErrorContext<DataAccessError<R>, &'static str>> for QueryError<R, S> {
+    fn from(err: ErrorContext<DataAccessError<R>, &'static str>) -> QueryError<R, S> {
         QueryError::DataAccessError(err.error, err.context)
     }
 }
 
+/// Errors related to data access to query results
 #[derive(Debug)]
-pub enum DataAccessError {
+pub enum DataAccessError<R> {
+    OdbcError(DiagnosticRecord, &'static str),
     OdbcCursorError(DiagnosticRecord),
+    FromRowError(R),
     FromUtf16Error(FromUtf16Error, &'static str),
 }
 
-impl fmt::Display for DataAccessError {
+impl<R> fmt::Display for DataAccessError<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            DataAccessError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
             DataAccessError::OdbcCursorError(_) => write!(f, "failed to access data in ODBC cursor"),
+            DataAccessError::FromRowError(_) => write!(f, "failed to convert table row to target type"),
             DataAccessError::FromUtf16Error(_, context) => write!(f, "failed to create String from UTF-16 column data while {}", context),
         }
     }
 }
 
-impl WithContext<&'static str> for DataAccessError {
-    type ContextError = ErrorContext<DataAccessError, &'static str>;
-    fn with_context(self, context: &'static str) -> ErrorContext<DataAccessError, &'static str> {
-        ErrorContext {
-            error: self, 
-            context 
-        }
-    }
-}
-
-impl Error for DataAccessError {
+impl<R> Error for DataAccessError<R> where R: Error + 'static {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            DataAccessError::OdbcError(err, _) => Some(err),
             DataAccessError::OdbcCursorError(err) => Some(err),
+            DataAccessError::FromRowError(err) => Some(err),
             DataAccessError::FromUtf16Error(err, _) => Some(err),
         }
     }
 }
 
-impl From<DiagnosticRecord> for DataAccessError {
-    fn from(err: DiagnosticRecord) -> DataAccessError {
+// Note that we don't give context for cursor data access at this time
+// TODO: better way to distinguish between general ODBC errors and cursor errors
+impl<R> From<DiagnosticRecord> for DataAccessError<R> {
+    fn from(err: DiagnosticRecord) -> DataAccessError<R> {
         DataAccessError::OdbcCursorError(err)
     }
 }
 
-impl From<ErrorContext<FromUtf16Error, &'static str>> for DataAccessError {
-    fn from(err: ErrorContext<FromUtf16Error, &'static str>) -> DataAccessError {
+impl<R> From<ErrorContext<DiagnosticRecord, &'static str>> for DataAccessError<R> {
+    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> DataAccessError<R> {
+        DataAccessError::OdbcError(err.error, err.context)
+    }
+}
+
+impl<R> From<ErrorContext<FromUtf16Error, &'static str>> for DataAccessError<R> {
+    fn from(err: ErrorContext<FromUtf16Error, &'static str>) -> DataAccessError<R> {
         DataAccessError::FromUtf16Error(err.error, err.context)
     }
 }
@@ -392,7 +394,7 @@ impl<'odbc, V, S> Iterator for RowIter<'odbc, V, S>
 where
     V: TryFromRow,
 {
-    type Item = Result<V, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>;
+    type Item = Result<V, DataAccessError<V::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use odbc_sys::SqlDataType::*;
@@ -421,6 +423,7 @@ where
 
         let utf_16_strings = self.utf_16_strings;
 
+        // TODO: transpose?
         match self.statement.as_mut().unwrap().fetch().wrap_error_while("fetching row") {
             Err(err) => Some(Err(err.into())),
             Ok(Some(mut cursor)) => {
@@ -431,107 +434,105 @@ where
                         .map(|(index, column_descriptor)| {
                             trace!("Parsing column {}: {:?}", index, column_descriptor);
                             // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
-                            in_context_of::<Value, DataAccessError, _, _, _>("getting value from cursor", || {
-                                Ok(match column_descriptor.data_type {
-                                    SQL_EXT_TINYINT => {
-                                        cursor_get_value::<S, i8>(&mut cursor, index as u16)?
-                                    }
-                                    SQL_SMALLINT => cursor_get_value::<S, i16>(&mut cursor, index as u16)?,
-                                    SQL_INTEGER => cursor_get_value::<S, i32>(&mut cursor, index as u16)?,
-                                    SQL_EXT_BIGINT => {
-                                        cursor_get_value::<S, i64>(&mut cursor, index as u16)?
-                                    }
-                                    SQL_FLOAT => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
-                                    SQL_REAL => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
-                                    SQL_DOUBLE => cursor_get_value::<S, f64>(&mut cursor, index as u16)?,
-                                    SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
+                            Ok(match column_descriptor.data_type {
+                                SQL_EXT_TINYINT => {
+                                    cursor_get_value::<S, i8>(&mut cursor, index as u16)?
+                                }
+                                SQL_SMALLINT => cursor_get_value::<S, i16>(&mut cursor, index as u16)?,
+                                SQL_INTEGER => cursor_get_value::<S, i32>(&mut cursor, index as u16)?,
+                                SQL_EXT_BIGINT => {
+                                    cursor_get_value::<S, i64>(&mut cursor, index as u16)?
+                                }
+                                SQL_FLOAT => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
+                                SQL_REAL => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
+                                SQL_DOUBLE => cursor_get_value::<S, f64>(&mut cursor, index as u16)?,
+                                SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
+                                    cursor_get_value::<S, String>(&mut cursor, index as u16)?
+                                }
+                                SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
+                                    if utf_16_strings {
+                                        if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
+                                            Value::String(String::from_utf16(bytes)
+                                                .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?)
+                                        } else {
+                                            Value::Null
+                                        }
+                                    } else {
                                         cursor_get_value::<S, String>(&mut cursor, index as u16)?
                                     }
-                                    SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
-                                        if utf_16_strings {
-                                            if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
-                                                Value::String(String::from_utf16(bytes)
-                                                    .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?)
-                                            } else {
-                                                Value::Null
-                                            }
-                                        } else {
-                                            cursor_get_value::<S, String>(&mut cursor, index as u16)?
-                                        }
+                                }
+                                SQL_TIMESTAMP => {
+                                    if let Some(timestamp) = cursor_get_data::<S, SqlTimestamp>(&mut cursor, index as u16)? {
+                                        trace!("{:?}", timestamp);
+                                        Value::String(format!(
+                                            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                                            timestamp.year,
+                                            timestamp.month,
+                                            timestamp.day,
+                                            timestamp.hour,
+                                            timestamp.minute,
+                                            timestamp.second,
+                                            timestamp.fraction / 1_000_000
+                                        ))
+                                    } else {
+                                        Value::Null
                                     }
-                                    SQL_TIMESTAMP => {
-                                        if let Some(timestamp) = cursor_get_data::<S, SqlTimestamp>(&mut cursor, index as u16)? {
-                                            trace!("{:?}", timestamp);
-                                            Value::String(format!(
-                                                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-                                                timestamp.year,
-                                                timestamp.month,
-                                                timestamp.day,
-                                                timestamp.hour,
-                                                timestamp.minute,
-                                                timestamp.second,
-                                                timestamp.fraction / 1_000_000
-                                            ))
-                                        } else {
-                                            Value::Null
-                                        }
+                                }
+                                SQL_DATE => {
+                                    if let Some(date) = cursor_get_data::<S, SqlDate>(&mut cursor, index as u16)? {
+                                        trace!("{:?}", date);
+                                        Value::String(format!(
+                                            "{:04}-{:02}-{:02}",
+                                            date.year, date.month, date.day
+                                        ))
+                                    } else {
+                                        Value::Null
                                     }
-                                    SQL_DATE => {
-                                        if let Some(date) = cursor_get_data::<S, SqlDate>(&mut cursor, index as u16)? {
-                                            trace!("{:?}", date);
-                                            Value::String(format!(
-                                                "{:04}-{:02}-{:02}",
-                                                date.year, date.month, date.day
-                                            ))
-                                        } else {
-                                            Value::Null
-                                        }
-                                    },
-                                    SQL_TIME => {
-                                            if let Some(time) = cursor_get_data::<S, SqlTime>(&mut cursor, index as u16)? {
-                                                trace!("{:?}", time);
-                                                Value::String(format!(
-                                                    "{:02}:{:02}:{:02}",
-                                                    time.hour, time.minute, time.second
-                                                ))
-                                            } else {
-                                                Value::Null
-                                            }
-                                    }
-                                    SQL_SS_TIME2 => {
-                                        if let Some(time) = cursor_get_data::<S, SqlSsTime2>(&mut cursor, index as u16)? {
+                                },
+                                SQL_TIME => {
+                                        if let Some(time) = cursor_get_data::<S, SqlTime>(&mut cursor, index as u16)? {
                                             trace!("{:?}", time);
                                             Value::String(format!(
-                                                "{:02}:{:02}:{:02}.{:07}",
-                                                time.hour,
-                                                time.minute,
-                                                time.second,
-                                                time.fraction / 100
+                                                "{:02}:{:02}:{:02}",
+                                                time.hour, time.minute, time.second
                                             ))
                                         } else {
                                             Value::Null
                                         }
+                                }
+                                SQL_SS_TIME2 => {
+                                    if let Some(time) = cursor_get_data::<S, SqlSsTime2>(&mut cursor, index as u16)? {
+                                        trace!("{:?}", time);
+                                        Value::String(format!(
+                                            "{:02}:{:02}:{:02}.{:07}",
+                                            time.hour,
+                                            time.minute,
+                                            time.second,
+                                            time.fraction / 100
+                                        ))
+                                    } else {
+                                        Value::Null
                                     }
-                                    SQL_EXT_BIT => {
-                                        if let Some(byte) = cursor_get_data::<S, u8>(&mut cursor, index as u16)? {
-                                            Value::Bool(if byte == 0 { false } else { true })
-                                        } else {
-                                            Value::Null
-                                        }
+                                }
+                                SQL_EXT_BIT => {
+                                    if let Some(byte) = cursor_get_data::<S, u8>(&mut cursor, index as u16)? {
+                                        Value::Bool(if byte == 0 { false } else { true })
+                                    } else {
+                                        Value::Null
                                     }
-                                    _ => panic!(format!(
-                                        "got unimplemented SQL data type: {:?}",
-                                        column_descriptor.data_type
-                                    )),
-                                })
-                            }).map_err(Into::into)
+                                }
+                                _ => panic!(format!(
+                                    "got unimplemented SQL data type: {:?}",
+                                    column_descriptor.data_type
+                                )),
+                            })
                         })
-                        .collect::<Result<Vec<Value>, QueryError<_, _>>>(),
+                        .collect::<Result<Vec<Value>, _>>(),
                 )
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, &self.schema).map_err(QueryError::FromRowError)))
+        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, &self.schema).map_err(DataAccessError::FromRowError)))
     }
 }
 
