@@ -37,16 +37,16 @@ pub trait Captures2<'a> {}
 impl<'a, T: ?Sized> Captures2<'a> for T {}
 
 #[derive(Debug)]
-pub enum OdbcIterError {
+pub enum OdbcError {
     OdbcError(Option<DiagnosticRecord>, &'static str),
     NotConnectedError,
 }
 
-impl fmt::Display for OdbcIterError {
+impl fmt::Display for OdbcError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            OdbcIterError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
-            OdbcIterError::NotConnectedError => write!(f, "not connected to database"),
+            OdbcError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
+            OdbcError::NotConnectedError => write!(f, "not connected to database"),
         }
     }
 }
@@ -55,31 +55,31 @@ fn to_dyn(diag: &Option<DiagnosticRecord>) -> Option<&(dyn Error + 'static)> {
     diag.as_ref().map(|e| e as &(dyn Error + 'static))
 }
 
-impl Error for OdbcIterError {
+impl Error for OdbcError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            OdbcIterError::OdbcError(diag, _) => to_dyn(diag),
-            OdbcIterError::NotConnectedError => None,
+            OdbcError::OdbcError(diag, _) => to_dyn(diag),
+            OdbcError::NotConnectedError => None,
         }
     }  
 }
 
-impl From<ErrorContext<Option<DiagnosticRecord>, &'static str>> for OdbcIterError {
-    fn from(err: ErrorContext<Option<DiagnosticRecord>, &'static str>) -> OdbcIterError {
-        OdbcIterError::OdbcError(err.error, err.context)
+impl From<ErrorContext<Option<DiagnosticRecord>, &'static str>> for OdbcError {
+    fn from(err: ErrorContext<Option<DiagnosticRecord>, &'static str>) -> OdbcError {
+        OdbcError::OdbcError(err.error, err.context)
     }
 }
 
-impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcIterError {
-    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> OdbcIterError {
-        OdbcIterError::OdbcError(Some(err.error), err.context)
+impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
+    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> OdbcError {
+        OdbcError::OdbcError(Some(err.error), err.context)
     }
 }
 
 //TODO: remove OdbcIter prefix
 //TODO: split RowIter error from this (FromRowError, DataAccessError)
 #[derive(Debug)]
-pub enum OdbcIterQueryError<R, S> {
+pub enum QueryError<R, S> {
     MultipleQueriesError(SplitQueriesError),
     FromRowError(R),
     FromSchemaError(S),
@@ -87,45 +87,45 @@ pub enum OdbcIterQueryError<R, S> {
     DataAccessError(DataAccessError, &'static str),
 }
 
-impl<R, S> fmt::Display for OdbcIterQueryError<R, S> {
+impl<R, S> fmt::Display for QueryError<R, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            OdbcIterQueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
-            OdbcIterQueryError::FromRowError(_) => write!(f, "failed to convert table row to target type"),
-            OdbcIterQueryError::FromSchemaError(_) => write!(f, "failed to convert table schema to target type"),
-            OdbcIterQueryError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
-            OdbcIterQueryError::DataAccessError(_, context) => write!(f, "failed to access result data while {}", context),
+            QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
+            QueryError::FromRowError(_) => write!(f, "failed to convert table row to target type"),
+            QueryError::FromSchemaError(_) => write!(f, "failed to convert table schema to target type"),
+            QueryError::OdbcError(_, context) => write!(f, "ODBC call failed while {}", context),
+            QueryError::DataAccessError(_, context) => write!(f, "failed to access result data while {}", context),
         }
     }
 }
 
-impl<R, S> Error for OdbcIterQueryError<R, S> where R: Error + 'static, S: Error + 'static {
+impl<R, S> Error for QueryError<R, S> where R: Error + 'static, S: Error + 'static {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            OdbcIterQueryError::MultipleQueriesError(err) => Some(err),
-            OdbcIterQueryError::FromRowError(err) => Some(err),
-            OdbcIterQueryError::FromSchemaError(err) => Some(err),
-            OdbcIterQueryError::OdbcError(err, _) => Some(err),
-            OdbcIterQueryError::DataAccessError(err, _) => Some(err),
+            QueryError::MultipleQueriesError(err) => Some(err),
+            QueryError::FromRowError(err) => Some(err),
+            QueryError::FromSchemaError(err) => Some(err),
+            QueryError::OdbcError(err, _) => Some(err),
+            QueryError::DataAccessError(err, _) => Some(err),
         }
     }  
 }
 
-impl<R, S> From<SplitQueriesError> for OdbcIterQueryError<R, S> {
-    fn from(err: SplitQueriesError) -> OdbcIterQueryError<R, S> {
-        OdbcIterQueryError::MultipleQueriesError(err)
+impl<R, S> From<SplitQueriesError> for QueryError<R, S> {
+    fn from(err: SplitQueriesError) -> QueryError<R, S> {
+        QueryError::MultipleQueriesError(err)
     }
 }
 
-impl<R, S> From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcIterQueryError<R, S> {
-    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> OdbcIterQueryError<R, S> {
-        OdbcIterQueryError::OdbcError(err.error, err.context)
+impl<R, S> From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError<R, S> {
+    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> QueryError<R, S> {
+        QueryError::OdbcError(err.error, err.context)
     }
 }
 
-impl<R, S> From<ErrorContext<DataAccessError, &'static str>> for OdbcIterQueryError<R, S> {
-    fn from(err: ErrorContext<DataAccessError, &'static str>) -> OdbcIterQueryError<R, S> {
-        OdbcIterQueryError::DataAccessError(err.error, err.context)
+impl<R, S> From<ErrorContext<DataAccessError, &'static str>> for QueryError<R, S> {
+    fn from(err: ErrorContext<DataAccessError, &'static str>) -> QueryError<R, S> {
+        QueryError::DataAccessError(err.error, err.context)
     }
 }
 
@@ -305,7 +305,7 @@ impl<'odbc, V, S> RowIter<'odbc, V, S>
 where
     V: TryFromRow,
 {
-    fn from_result<'t>(result: ResultSetState<'odbc, 't, S>, utf_16_strings: bool) -> Result<RowIter<'odbc, V, S>, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>> {
+    fn from_result<'t>(result: ResultSetState<'odbc, 't, S>, utf_16_strings: bool) -> Result<RowIter<'odbc, V, S>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>> {
         let (odbc_schema, statement, no_results_statement) = match result {
             ResultSetState::Data(statement) => {
                 let num_cols = statement.num_result_cols().wrap_error_while("getting number of result columns")?;
@@ -342,7 +342,7 @@ where
             }
         }
 
-        let schema = V::Schema::try_from_schema(&odbc_schema).map_err(OdbcIterQueryError::FromSchemaError)?;
+        let schema = V::Schema::try_from_schema(&odbc_schema).map_err(QueryError::FromSchemaError)?;
 
         Ok(RowIter {
             statement,
@@ -365,7 +365,7 @@ where
 {
     pub fn close(
         self,
-    ) -> Result<PreparedStatement<'odbc>, OdbcIterError> {
+    ) -> Result<PreparedStatement<'odbc>, OdbcError> {
         if let Some(statement) = self.statement {
             Ok(PreparedStatement(statement.close_cursor().wrap_error_while("clocing cursor")?))
         } else {
@@ -380,7 +380,7 @@ where
 {
     pub fn close(
         self,
-    ) -> Result<(), OdbcIterError> {
+    ) -> Result<(), OdbcError> {
         if let Some(statement) = self.statement {
             statement.close_cursor().wrap_error_while("closing cursor")?;
         }
@@ -392,7 +392,7 @@ impl<'odbc, V, S> Iterator for RowIter<'odbc, V, S>
 where
     V: TryFromRow,
 {
-    type Item = Result<V, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>;
+    type Item = Result<V, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use odbc_sys::SqlDataType::*;
@@ -526,12 +526,12 @@ where
                                 })
                             }).map_err(Into::into)
                         })
-                        .collect::<Result<Vec<Value>, OdbcIterQueryError<_, _>>>(),
+                        .collect::<Result<Vec<Value>, QueryError<_, _>>>(),
                 )
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, &self.schema).map_err(OdbcIterQueryError::FromRowError)))
+        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, &self.schema).map_err(QueryError::FromRowError)))
     }
 }
 
@@ -582,18 +582,18 @@ pub struct Options {
 pub struct PreparedStatement<'odbc>(Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>);
 
 impl<'env> Odbc<'env> {
-    pub fn env() -> Result<EnvironmentV3, OdbcIterError> {
+    pub fn env() -> Result<EnvironmentV3, OdbcError> {
         odbc::create_environment_v3().wrap_error_while("creating v3 environment").map_err(Into::into)
     }
 
-    pub fn list_drivers(odbc: &mut Environment<Version3>) -> Result<Vec<DriverInfo>, OdbcIterError> {
+    pub fn list_drivers(odbc: &mut Environment<Version3>) -> Result<Vec<DriverInfo>, OdbcError> {
         odbc.drivers().wrap_error_while("listing drivers").map_err(Into::into)
     }
 
     pub fn connect(
         env: &'env Environment<Version3>,
         connection_string: &str,
-    ) -> Result<Odbc<'env>, OdbcIterError> {
+    ) -> Result<Odbc<'env>, OdbcError> {
         Self::connect_with_options(
             env,
             connection_string,
@@ -607,7 +607,7 @@ impl<'env> Odbc<'env> {
         env: &'env Environment<Version3>,
         connection_string: &str,
         options: Options,
-    ) -> Result<Odbc<'env>, OdbcIterError> {
+    ) -> Result<Odbc<'env>, OdbcError> {
         let connection = env
             .connect_with_connection_string(connection_string)
             .wrap_error_while("connecting to database")?;
@@ -617,7 +617,7 @@ impl<'env> Odbc<'env> {
         })
     }
 
-    pub fn prepare<'odbc>(&'odbc self, query: &str) -> Result<PreparedStatement<'odbc>, OdbcIterError> {
+    pub fn prepare<'odbc>(&'odbc self, query: &str) -> Result<PreparedStatement<'odbc>, OdbcError> {
         debug!("Preparing ODBC query: {}", &query);
 
         let statement = Statement::with_parent(&self.connection)
@@ -628,7 +628,7 @@ impl<'env> Odbc<'env> {
         Ok(PreparedStatement(statement))
     }
 
-    pub fn query<V>(&self, query: &str) -> Result<RowIter<V, Allocated>, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
+    pub fn query<V>(&self, query: &str) -> Result<RowIter<V, Allocated>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
     where
         V: TryFromRow,
     {
@@ -639,7 +639,7 @@ impl<'env> Odbc<'env> {
         &'odbc self,
         query: &str,
         bind: F,
-    ) -> Result<RowIter<V, Allocated>, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
+    ) -> Result<RowIter<V, Allocated>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
     where
         V: TryFromRow,
         F: FnOnce(Binder<'odbc, 'odbc, Allocated>) -> Result<Binder<'odbc, 't, Allocated>, DiagnosticRecord>,
@@ -659,7 +659,7 @@ impl<'env> Odbc<'env> {
     pub fn execute<'odbc, V>(
         &'odbc self,
         statement: PreparedStatement<'odbc>,
-    ) -> Result<RowIter<'odbc, V, Prepared>, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
+    ) -> Result<RowIter<'odbc, V, Prepared>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
     where
         V: TryFromRow,
     {
@@ -670,7 +670,7 @@ impl<'env> Odbc<'env> {
         &'odbc self,
         statement: PreparedStatement<'odbc>,
         bind: F,
-    ) -> Result<RowIter<V, Prepared>, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
+    ) -> Result<RowIter<V, Prepared>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>
     where
         V: TryFromRow,
         F: FnOnce(Binder<'odbc, 'odbc, Prepared>) -> Result<Binder<'odbc, 't, Prepared>, DiagnosticRecord>,
@@ -685,7 +685,7 @@ impl<'env> Odbc<'env> {
     pub fn query_multiple<'odbc, 'q, 't, V>(
         &'odbc self,
         queries: &'q str,
-    ) -> impl Iterator<Item = Result<RowIter<V, Allocated>, OdbcIterQueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>> + Captures<'t> + Captures<'env>
+    ) -> impl Iterator<Item = Result<RowIter<V, Allocated>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>>> + Captures<'t> + Captures<'env>
     where
         'env: 'odbc,
         'env: 't,
@@ -722,14 +722,14 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQu
 thread_local! {
     // Leaking ODBC handle per thread should be OK...ish assuming a thread pool is used?
     static ODBC: &'static EnvironmentV3 = Box::leak(Box::new(Odbc::env().expect("Failed to initialize ODBC")));
-    static DB: RefCell<Result<Odbc<'static>, OdbcIterError>> = RefCell::new(Err(OdbcIterError::NotConnectedError));
+    static DB: RefCell<Result<Odbc<'static>, OdbcError>> = RefCell::new(Err(OdbcError::NotConnectedError));
 }
 
 /// Access to thread local connection
 /// Connection will be astablished only once if successful or any time this function is called again after it failed to connect prevously
 pub fn thread_local_connection_with<O>(
     connection_string: &str,
-    f: impl Fn(Ref<Result<Odbc<'static>, OdbcIterError>>) -> O,
+    f: impl Fn(Ref<Result<Odbc<'static>, OdbcError>>) -> O,
 ) -> O {
     DB.with(|db| {
         {
