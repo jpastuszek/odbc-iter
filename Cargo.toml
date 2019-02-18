@@ -4,8 +4,7 @@ version = "0.1.0"
 authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
 edition = "2018"
 
-[features]
-# no features by default
+[features] # no features by default
 default = []
 test-hive = []
 test-sql-server = []
@@ -18,7 +17,7 @@ serde_json = "1.0.33"
 regex = "1.1.0"
 lazy_static = "1.2.0"
 log = "0.4.6"
-error-context = { git = "https://github.com/jpastuszek/error-context" }
+error-context = "0.1.0"
 ### for odbc-query
 cotton = { git = "https://github.com/jpastuszek/cotton.git" }
 structopt = "0.2.14"
