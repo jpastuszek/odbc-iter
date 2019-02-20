@@ -6,7 +6,6 @@ use odbc::{
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3, DiagnosticRecord
 };
 use regex::Regex;
-pub use serde_json::value::Value;
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -16,6 +15,8 @@ use std::error::Error;
 use std::string::FromUtf16Error;
 
 pub mod schema_access;
+pub mod value;
+pub use value::{Value, Values};
 
 /// TODO
 /// * Use custom Value type but provide From traits for JSON behind feature
@@ -212,7 +213,6 @@ impl From<DiagnosticRecord> for BindError {
 }
 
 pub type EnvironmentV3 = Environment<Version3>;
-pub type Values = Vec<Value>;
 pub type Schema = Vec<ColumnDescriptor>;
 
 //TODO: use ! type when it is stable
@@ -249,7 +249,7 @@ impl TryFromSchema for Schema {
 
 /// Convert from ODBC row to other type of value
 pub trait TryFromRow: Sized {
-    /// Type of shema for the target value
+    /// Type of schema for the target value
     type Schema: TryFromSchema;
     type Error: Error + 'static;
     fn try_from_row(values: Values, schema: &Self::Schema) -> Result<Self, Self::Error>;
@@ -263,13 +263,13 @@ impl TryFromRow for Values {
     }
 }
 
-impl TryFromRow for Value {
-    type Schema = Schema;
-    type Error = NoError;
-    fn try_from_row(values: Values, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-        Ok(values.into())
-    }
-}
+// impl TryFromRow for Value {
+//     type Schema = Schema;
+//     type Error = NoError;
+//     fn try_from_row(values: Values, _schema: &Self::Schema) -> Result<Self, Self::Error> {
+//         Ok(values.into())
+//     }
+// }
 
 /// Iterate rows converting them to given value type
 pub struct RowIter<'odbc, V, S>
@@ -387,15 +387,11 @@ where
             cursor.get_data::<T>(index + 1)
         }
 
-        fn into_value<T: Into<Value>>(value: Option<T>) -> Value {
-            value.map(Into::into).unwrap_or(Value::Null)
-        }
-
         fn cursor_get_value<'i, S, T: odbc::OdbcType<'i> + Into<Value>>(
             cursor: &'i mut odbc::Cursor<S>,
             index: u16,
-        ) -> Result<Value, DiagnosticRecord> {
-            cursor_get_data::<S, T>(cursor, index).map(into_value)
+        ) -> Result<Option<Value>, DiagnosticRecord> {
+            cursor_get_data::<S, T>(cursor, index).map(|value| value.map(Into::into))
         }
 
         if self.statement.is_none() {
@@ -433,10 +429,10 @@ where
                                 SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
                                     if utf_16_strings {
                                         if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
-                                            Value::String(String::from_utf16(bytes)
-                                                .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?)
+                                            Some(Value::String(String::from_utf16(bytes)
+                                                .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?))
                                         } else {
-                                            Value::Null
+                                            None
                                         }
                                     } else {
                                         cursor_get_value::<S, String>(&mut cursor, index as u16)?
@@ -445,7 +441,7 @@ where
                                 SQL_TIMESTAMP => {
                                     if let Some(timestamp) = cursor_get_data::<S, SqlTimestamp>(&mut cursor, index as u16)? {
                                         trace!("{:?}", timestamp);
-                                        Value::String(format!(
+                                        Some(Value::String(format!(
                                             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
                                             timestamp.year,
                                             timestamp.month,
@@ -454,52 +450,25 @@ where
                                             timestamp.minute,
                                             timestamp.second,
                                             timestamp.fraction / 1_000_000
-                                        ))
+                                        )))
                                     } else {
-                                        Value::Null
+                                        None
                                     }
                                 }
                                 SQL_DATE => {
-                                    if let Some(date) = cursor_get_data::<S, SqlDate>(&mut cursor, index as u16)? {
-                                        trace!("{:?}", date);
-                                        Value::String(format!(
-                                            "{:04}-{:02}-{:02}",
-                                            date.year, date.month, date.day
-                                        ))
-                                    } else {
-                                        Value::Null
-                                    }
+                                    cursor_get_value::<S, SqlDate>(&mut cursor, index as u16)?
                                 },
                                 SQL_TIME => {
-                                        if let Some(time) = cursor_get_data::<S, SqlTime>(&mut cursor, index as u16)? {
-                                            trace!("{:?}", time);
-                                            Value::String(format!(
-                                                "{:02}:{:02}:{:02}",
-                                                time.hour, time.minute, time.second
-                                            ))
-                                        } else {
-                                            Value::Null
-                                        }
+                                    cursor_get_value::<S, SqlTime>(&mut cursor, index as u16)?
                                 }
                                 SQL_SS_TIME2 => {
-                                    if let Some(time) = cursor_get_data::<S, SqlSsTime2>(&mut cursor, index as u16)? {
-                                        trace!("{:?}", time);
-                                        Value::String(format!(
-                                            "{:02}:{:02}:{:02}.{:07}",
-                                            time.hour,
-                                            time.minute,
-                                            time.second,
-                                            time.fraction / 100
-                                        ))
-                                    } else {
-                                        Value::Null
-                                    }
+                                    cursor_get_value::<S, SqlSsTime2>(&mut cursor, index as u16)?
                                 }
                                 SQL_EXT_BIT => {
                                     if let Some(byte) = cursor_get_data::<S, u8>(&mut cursor, index as u16)? {
-                                        Value::Bool(if byte == 0 { false } else { true })
+                                        Some(Value::Bit(if byte == 0 { false } else { true }))
                                     } else {
-                                        Value::Null
+                                        None
                                     }
                                 }
                                 _ => panic!(format!(
@@ -508,7 +477,7 @@ where
                                 )),
                             })
                         })
-                        .collect::<Result<Vec<Value>, _>>(),
+                        .collect::<Result<Vec<Option<Value>>, _>>(),
                 )
             }
             Ok(None) => None,
@@ -763,13 +732,13 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT explode(x) AS n FROM (SELECT array(42, 24) AS x) d;")
+            .query::<Values>("SELECT explode(x) AS n FROM (SELECT array(42, 24) AS x) d;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(42)));
-        assert_matches!(data[1][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
+        assert_matches!(data[0][0], Some(Value::Integer(number)) => assert_eq!(number, 42));
+        assert_matches!(data[1][0], Some(Value::Integer(number)) => assert_eq!(number, 24));
     }
 
     #[cfg(feature = "test-hive")]
@@ -779,13 +748,13 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT 42, 24;")
+            .query::<Values>("SELECT 42, 24;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(42)));
-        assert_matches!(data[0][1], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
+        assert_matches!(data[0][0], Some(Value::Integer(number)) => assert_eq!(number, 42));
+        assert_matches!(data[0][1], Some(Value::Integer(number)) => assert_eq!(number, 24));
     }
 
     #[cfg(feature = "test-hive")]
@@ -794,15 +763,15 @@ mod query {
         let odbc = Odbc::env().expect("open ODBC");
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
-        let data = hive.query::<Value>("SELECT cast(127 AS TINYINT), cast(32767 AS SMALLINT), cast(2147483647 AS INTEGER), cast(9223372036854775807 AS BIGINT);")
+        let data = hive.query::<Values>("SELECT cast(127 AS TINYINT), cast(32767 AS SMALLINT), cast(2147483647 AS INTEGER), cast(9223372036854775807 AS BIGINT);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(127)));
-        assert_matches!(data[0][1], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(32767)));
-        assert_matches!(data[0][2], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(2147483647)));
-        assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(9223372036854775807)));
+        assert_matches!(data[0][0], Some(Value::Tinyint(number)) => assert_eq!(number, 127));
+        assert_matches!(data[0][1], Some(Value::Smallint(number)) => assert_eq!(number, 32767));
+        assert_matches!(data[0][2], Some(Value::Integer(number)) => assert_eq!(number, 2147483647));
+        assert_matches!(data[0][3], Some(Value::Bigint(number)) => assert_eq!(number, 9223372036854775807));
     }
 
     #[cfg(feature = "test-hive")]
@@ -812,14 +781,14 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT true, false, CAST(NULL AS BOOLEAN)")
+            .query::<Values>("SELECT true, false, CAST(NULL AS BOOLEAN)")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_eq!(data[0][0], Value::Bool(true));
-        assert_eq!(data[0][1], Value::Bool(false));
-        assert_eq!(data[0][2], Value::Null);
+        assert_matches!(data[0][0], Some(Value::Bit(true)));
+        assert_matches!(data[0][1], Some(Value::Bit(false)));
+        assert!(data[0][2].is_none());
     }
 
     #[cfg(feature = "test-hive")]
@@ -829,13 +798,13 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT cast('foo' AS STRING), cast('bar' AS VARCHAR);")
+            .query::<Values>("SELECT cast('foo' AS STRING), cast('bar' AS VARCHAR);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string.as_str(), "foo"));
-        assert_matches!(data[0][1], Value::String(ref string) => assert_eq!(string.as_str(), "bar"));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+        assert_matches!(data[0][1], Some(Value::String(ref string)) => assert_eq!(string, "bar"));
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -844,15 +813,15 @@ mod query {
         let odbc = Odbc::env().expect("open ODBC");
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to Hive");
-        let data = hive.query::<Value>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
+        let data = hive.query::<Values>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string.as_str(), "foo"));
-        assert_matches!(data[0][1], Value::String(ref string) => assert_eq!(string.as_str(), "bar"));
-        assert_matches!(data[0][2], Value::String(ref string) => assert_eq!(string.as_str(), "baz"));
-        assert_matches!(data[0][3], Value::String(ref string) => assert_eq!(string.as_str(), "quix"));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+        assert_matches!(data[0][1], Some(Value::String(ref string)) => assert_eq!(string, "bar"));
+        assert_matches!(data[0][2], Some(Value::String(ref string)) => assert_eq!(string, "baz"));
+        assert_matches!(data[0][3], Some(Value::String(ref string)) => assert_eq!(string, "quix"));
     }
 
     #[cfg(feature = "test-hive")]
@@ -862,13 +831,13 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT cast(1.5 AS FLOAT), cast(2.5 AS DOUBLE);")
+            .query::<Values>("SELECT cast(1.5 AS FLOAT), cast(2.5 AS DOUBLE);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert!(number.as_f64().unwrap() > 1.0 && number.as_f64().unwrap() < 2.0));
-        assert_matches!(data[0][1], Value::Number(ref number) => assert!(number.as_f64().unwrap() > 2.0 && number.as_f64().unwrap() < 3.0));
+        assert_matches!(data[0][0], Some(Value::Float(number)) => assert!(number > 1.0 && number < 2.0));
+        assert_matches!(data[0][1], Some(Value::Double(number)) => assert!(number > 2.0 && number < 3.0));
     }
 
     #[cfg(feature = "test-hive")]
@@ -878,13 +847,13 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT cast(NULL AS FLOAT), cast(NULL AS DOUBLE);")
+            .query::<Values>("SELECT cast(NULL AS FLOAT), cast(NULL AS DOUBLE);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert!(data[0][0].is_null());
-        assert!(data[0][1].is_null());
+        assert!(data[0][0].is_none());
+        assert!(data[0][1].is_none());
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -894,12 +863,12 @@ mod query {
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT cast('2018-08-24' AS DATE) AS date")
+            .query::<Values>("SELECT cast('2018-08-24' AS DATE) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string.as_str(), "2018-08-24"));
+        assert_matches!(data[0][0], Some(Value::Date(ref date)) => assert_eq!(&date.to_string(), "2018-08-24"));
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -909,17 +878,17 @@ mod query {
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to Hive");
         let data = hive
-            .query::<Value>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
+            .query::<Values>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string.as_str(), "10:22:33.7654321"));
+        assert_matches!(data[0][0], Some(Value::Time(ref time)) => assert_eq!(&time.to_string(), "10:22:33.765432100"));
     }
 
     #[derive(Debug)]
     struct Foo {
-        val: i64,
+        val: i32,
     }
 
     impl TryFromRow for Foo {
@@ -927,7 +896,7 @@ mod query {
         type Error = NoError;
         fn try_from_row(mut values: Values, _schema: &Schema) -> Result<Self, NoError> {
             Ok(values.pop().map(|val| Foo {
-                val: val.as_i64().expect("val to be a number"),
+                val: val.and_then(|v| v.as_integer()).expect("val to be an integer"),
             }).expect("value"))
         }
     }
@@ -974,7 +943,7 @@ mod query {
 
         let val = [42, 24, 32, 666];
 
-        let data: Vec<Value> = db
+        let data: Vec<Values> = db
             .query_with_parameters("SELECT ?, ?, ?, ? AS val;", |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
             })
@@ -982,10 +951,10 @@ mod query {
             .collect::<Result<_, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(42)));
-        assert_matches!(data[0][1], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
-        assert_matches!(data[0][2], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(32)));
-        assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(666)));
+        assert_matches!(data[0][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 42));
+        assert_matches!(data[0][1], Some(Value::Integer(ref number)) => assert_eq!(*number, 24));
+        assert_matches!(data[0][2], Some(Value::Integer(ref number)) => assert_eq!(*number, 32));
+        assert_matches!(data[0][3], Some(Value::Integer(ref number)) => assert_eq!(*number, 666));
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -999,7 +968,7 @@ mod query {
 
         let statement = db.prepare("SELECT ?, ?, ?, ? AS val;").expect("prepare statement");
 
-        let data: Vec<Value> = db
+        let data: Vec<Values> = db
             .execute_with_parameters(statement, |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
             })
@@ -1007,10 +976,10 @@ mod query {
             .collect::<Result<_, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(42)));
-        assert_matches!(data[0][1], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
-        assert_matches!(data[0][2], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(32)));
-        assert_matches!(data[0][3], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(666)));
+        assert_matches!(data[0][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 42));
+        assert_matches!(data[0][1], Some(Value::Integer(ref number)) => assert_eq!(*number, 24));
+        assert_matches!(data[0][2], Some(Value::Integer(ref number)) => assert_eq!(*number, 32));
+        assert_matches!(data[0][3], Some(Value::Integer(ref number)) => assert_eq!(*number, 666));
     }
 
 
@@ -1021,7 +990,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>("USE default;")
+            .query::<Values>("USE default;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1036,12 +1005,12 @@ mod query {
         let sql_server = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
         let data = sql_server
-            .query::<Value>(&format!("SELECT N'{}'", LONG_STRING))
+            .query::<Values>(&format!("SELECT N'{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
 
     #[cfg(feature = "test-hive")]
@@ -1051,12 +1020,12 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
 
     #[cfg(feature = "test-monetdb")]
@@ -1066,12 +1035,12 @@ mod query {
         let monetdb = Odbc::connect(&odbc, monetdb_connection_string().as_str())
             .expect("connect to MonetDB");
         let data = monetdb
-            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -1087,12 +1056,12 @@ mod query {
         )
         .expect("connect to SQL Server");
         let data = sql_server
-            .query::<Value>(&format!("SELECT N'{}'", LONG_STRING))
+            .query::<Values>(&format!("SELECT N'{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
 
     #[cfg(feature = "test-hive")]
@@ -1108,12 +1077,12 @@ mod query {
         )
         .expect("connect to Hive");
         let data = hive
-            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
 
     #[cfg(feature = "test-monetdb")]
@@ -1129,12 +1098,12 @@ mod query {
         )
         .expect("connect to MonetDB");
         let data = monetdb
-            .query::<Value>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::String(ref string) => assert_eq!(string, LONG_STRING));
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
     #[test]
     fn test_split_queries() {
@@ -1289,13 +1258,13 @@ SELECT *;
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query_multiple::<Value>("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
+            .query_multiple::<Values>("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
             .flat_map(|i| i.expect("failed to run query"))
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(42)));
-        assert_matches!(data[1][0], Value::Number(ref number) => assert_eq!(number.as_i64(), Some(24)));
-        assert_matches!(data[2][0], Value::String(ref string) => assert_eq!(string, "foo"));
+        assert_matches!(data[0][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 42));
+        assert_matches!(data[1][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 24));
+        assert_matches!(data[2][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
     }
 }
