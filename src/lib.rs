@@ -15,6 +15,8 @@ use std::fmt;
 use std::error::Error;
 use std::string::FromUtf16Error;
 
+pub mod schema_access;
+
 /// TODO
 /// * Use custom Value type but provide From traits for JSON behind feature
 /// * Make tests somehow runnable?
@@ -212,59 +214,6 @@ impl From<DiagnosticRecord> for BindError {
 pub type EnvironmentV3 = Environment<Version3>;
 pub type Values = Vec<Value>;
 pub type Schema = Vec<ColumnDescriptor>;
-
-// TODO: move SchemaAccess to submodule
-// pub struct SchemaAccess<'v> {
-//     value: Vec<Value>,
-//     schema: &'v Schema,
-// }
-
-// pub trait WithSchemaAccess {
-//     fn with_schema_access<'i>(self, schema: &'i Schema) -> SchemaAccess<'i>;
-// }
-
-// impl WithSchemaAccess for Values {
-//     fn with_schema_access<'i>(self, schema: &'i Schema) -> SchemaAccess<'i> {
-//         SchemaAccess {
-//             value: self,
-//             schema,
-//         }
-//     }
-// }
-
-// pub trait SchemaIndex {
-//     fn column_index(self, name: &str) -> Result<usize, Problem>;
-// }
-
-// impl<'i> SchemaIndex for &'i Schema {
-//     fn column_index(self, name: &str) -> Result<usize, Problem> {
-//         self.iter()
-//             .position(|desc| desc.name == name)
-//             .ok_or_problem("column not found")
-//             .problem_while_with(|| {
-//                 format!("accessing column {} in data with schema: {:?}", name, self)
-//             })
-//     }
-// }
-
-// impl<'i> SchemaAccess<'i> {
-//     pub fn get(&self, column_name: &str) -> Result<&Value, Problem> {
-//         let index = self.schema.column_index(column_name)?;
-//         Ok(self
-//             .value
-//             .get(index)
-//             .expect("index out of range while getting value by column name"))
-//     }
-
-//     pub fn take(&mut self, column_name: &str) -> Result<Value, Problem> {
-//         let index = self.schema.column_index(column_name)?;
-//         Ok(self
-//             .value
-//             .get_mut(index)
-//             .expect("index out of range while taking value by column name")
-//             .take())
-//     }
-// }
 
 //TODO: use ! type when it is stable
 #[derive(Debug)]
