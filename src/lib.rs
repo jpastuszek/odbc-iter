@@ -378,7 +378,7 @@ where
     type Item = Result<V, DataAccessError<V::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use odbc_sys::SqlDataType::*;
+        use odbc::ffi::SqlDataType::*;
 
         fn cursor_get_data<'i, S, T: odbc::OdbcType<'i>>(
             cursor: &'i mut odbc::Cursor<S>,
