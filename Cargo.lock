@@ -74,7 +74,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "odbc"
-version = "0.9.17"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -91,7 +91,7 @@ dependencies = [
  "error-context 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "odbc 0.9.17 (registry+https://github.com/rust-lang/crates.io-index)",
+ "odbc 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "odbc-sys 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -198,7 +198,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum memchr 2.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "db4c41318937f6e76648f42826b1d9ade5c09cafb5aef7e351240a70f39206e9"
 "checksum num-integer 0.1.39 (registry+https://github.com/rust-lang/crates.io-index)" = "e83d528d2677f0518c570baf2b7abdcf0cd2d248860b68507bdcb3e91d4c0cea"
 "checksum num-traits 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "0b3a5d7cc97d6d30d8b9bc8fa19bf45349ffe46241e8816f50f62f6d6aaabee1"
-"checksum odbc 0.9.17 (registry+https://github.com/rust-lang/crates.io-index)" = "480df6ff96e516e61ebbf702086462bd4fadebcc13fcf3368b6548f0fb3fa8cc"
+"checksum odbc 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a093122deac716cd5be8f7bc07303db8dba2aa232788ba3961e5c73a428d299d"
 "checksum odbc-safe 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f57e420b988c9d41005b33da6710bc1a657f2ce540a951c8aeb1d23ce1615502"
 "checksum odbc-sys 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)" = "824b45fb2d67a9cab7bfe8c3e7d543b34935764d2d0eee15373ef85dd5988b72"
 "checksum redox_syscall 0.1.51 (registry+https://github.com/rust-lang/crates.io-index)" = "423e376fffca3dfa06c9e9790a9ccd282fafb3cc6e6397d01dbf64f9bacc6b85"

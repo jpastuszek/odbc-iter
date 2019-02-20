@@ -12,7 +12,7 @@ test-monetdb = []
 
 [dependencies]
 odbc-sys = "0.6.1"
-odbc = "0.9.15"
+odbc = "0.10.1"
 regex = "1.1.0"
 lazy_static = "1.2.0"
 log = "0.4.6"
