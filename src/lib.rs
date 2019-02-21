@@ -19,8 +19,6 @@ pub mod value;
 pub use value::{Value, Values};
 
 /// TODO
-/// * Use custom Value type but provide From traits for JSON behind feature
-/// * Make tests somehow runnable?
 /// * Provide affected_row_count()
 /// * Provide tables()
 /// * Prepared statement .schema()/.num_result_cold()
@@ -1045,7 +1043,7 @@ mod query {
 
     #[cfg(feature = "test-sql-server")]
     #[test]
-    fn test_sql_server_long_string_fetch_utf_16() {
+    fn test_sql_server_long_string_fetch_utf_16_bind() {
         let odbc = Odbc::env().expect("open ODBC");
         let sql_server = Odbc::connect_with_options(
             &odbc,
@@ -1053,10 +1051,16 @@ mod query {
             Options {
                 utf_16_strings: true,
             },
-        )
-        .expect("connect to SQL Server");
-        let data = sql_server
-            .query::<Values>(&format!("SELECT N'{}'", LONG_STRING))
+        ).expect("connect to SQL Server");
+
+        let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
+
+        let statement = sql_server.prepare("SELECT ? AS val;").expect("prepare statement");
+
+        let data: Vec<Values> = sql_server
+            .execute_with_parameters(statement, |q| {
+                q.bind(&utf_16_string)
+            })
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1076,6 +1080,7 @@ mod query {
             },
         )
         .expect("connect to Hive");
+        
         let data = hive
             .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
@@ -1097,6 +1102,7 @@ mod query {
             },
         )
         .expect("connect to MonetDB");
+
         let data = monetdb
             .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")

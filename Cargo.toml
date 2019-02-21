@@ -11,7 +11,8 @@ test-sql-server = []
 test-monetdb = []
 
 [dependencies]
-odbc = "0.10.1"
+# odbc = "0.10.1"
+odbc = { git = "https://github.com/jpastuszek/odbc-rs" }
 regex = "1.1.0"
 lazy_static = "1.2.0"
 log = "0.4.6"
