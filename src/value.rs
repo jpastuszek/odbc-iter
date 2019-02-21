@@ -1,4 +1,4 @@
-use chrono::naive::{NaiveDateTime, NaiveDate, NaiveTime};
+use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 
 #[derive(Debug)]
@@ -20,84 +20,84 @@ impl Value {
     pub fn as_bit(&self) -> Option<bool> {
         match self {
             Value::Bit(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_tinyint(&self) -> Option<i8> {
         match self {
             Value::Tinyint(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_smallint(&self) -> Option<i16> {
         match self {
             Value::Smallint(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_integer(&self) -> Option<i32> {
         match self {
             Value::Integer(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_bigint(&self) -> Option<i64> {
         match self {
             Value::Bigint(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_float(&self) -> Option<f32> {
         match self {
             Value::Float(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_dobule(&self) -> Option<f64> {
         match self {
             Value::Double(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(value) => Some(value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn into_string(self) -> Result<String, Value> {
         match self {
             Value::String(value) => Ok(value),
-            _ => Err(self)
+            _ => Err(self),
         }
     }
 
     pub fn as_timestamp(&self) -> Option<NaiveDateTime> {
         match self {
             Value::Timestamp(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_date(&self) -> Option<NaiveDate> {
         match self {
             Value::Date(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_time(&self) -> Option<NaiveTime> {
         match self {
             Value::Time(value) => Some(*value),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -158,10 +158,15 @@ impl From<NaiveDateTime> for Value {
 
 impl From<SqlTimestamp> for Value {
     fn from(value: SqlTimestamp) -> Value {
-        Value::Timestamp(
-            NaiveDateTime::new(
-                NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32), 
-                NaiveTime::from_hms_nano(value.hour as u32, value.minute as u32, value.second as u32, value.fraction)))
+        Value::Timestamp(NaiveDateTime::new(
+            NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32),
+            NaiveTime::from_hms_nano(
+                value.hour as u32,
+                value.minute as u32,
+                value.second as u32,
+                value.fraction,
+            ),
+        ))
     }
 }
 
@@ -173,7 +178,11 @@ impl From<NaiveDate> for Value {
 
 impl From<SqlDate> for Value {
     fn from(value: SqlDate) -> Value {
-        Value::Date(NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32))
+        Value::Date(NaiveDate::from_ymd(
+            value.year as i32,
+            value.month as u32,
+            value.day as u32,
+        ))
     }
 }
 
@@ -185,13 +194,22 @@ impl From<NaiveTime> for Value {
 
 impl From<SqlTime> for Value {
     fn from(value: SqlTime) -> Value {
-        Value::Time(NaiveTime::from_hms(value.hour as u32, value.minute as u32, value.second as u32))
+        Value::Time(NaiveTime::from_hms(
+            value.hour as u32,
+            value.minute as u32,
+            value.second as u32,
+        ))
     }
 }
 
 impl From<SqlSsTime2> for Value {
     fn from(value: SqlSsTime2) -> Value {
-        Value::Time(NaiveTime::from_hms_nano(value.hour as u32, value.minute as u32, value.second as u32, value.fraction))
+        Value::Time(NaiveTime::from_hms_nano(
+            value.hour as u32,
+            value.minute as u32,
+            value.second as u32,
+            value.fraction,
+        ))
     }
 }
 

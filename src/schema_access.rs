@@ -50,7 +50,10 @@ mod query {
 
     #[test]
     fn test_get() {
-        let values = vec![Some(Value::String("foo".to_owned())), Some(Value::String("bar".to_owned()))];
+        let values = vec![
+            Some(Value::String("foo".to_owned())),
+            Some(Value::String("bar".to_owned())),
+        ];
         let schema = vec![
             ColumnDescriptor {
                 name: "quix".to_owned(),
@@ -73,7 +76,10 @@ mod query {
         assert!(values.get("foo").is_none());
 
         assert!(values.get("quix").is_some());
-        assert_eq!(values.get("quix").unwrap().unwrap().as_str().unwrap(), "foo");
+        assert_eq!(
+            values.get("quix").unwrap().unwrap().as_str().unwrap(),
+            "foo"
+        );
 
         assert!(values.get("baz").is_some());
         assert_eq!(values.get("baz").unwrap().unwrap().as_str().unwrap(), "bar");
@@ -81,7 +87,10 @@ mod query {
 
     #[test]
     fn test_take() {
-        let values = vec![Some(Value::String("foo".to_owned())), Some(Value::String("bar".to_owned()))];
+        let values = vec![
+            Some(Value::String("foo".to_owned())),
+            Some(Value::String("bar".to_owned())),
+        ];
         let schema = vec![
             ColumnDescriptor {
                 name: "quix".to_owned(),
@@ -101,10 +110,16 @@ mod query {
 
         let mut values = values.with_schema_access(&schema);
 
-        assert_eq!(values.take("quix").unwrap().unwrap().as_str().unwrap(), "foo");
+        assert_eq!(
+            values.take("quix").unwrap().unwrap().as_str().unwrap(),
+            "foo"
+        );
         assert!(values.take("quix").unwrap().is_none());
 
-        assert_eq!(values.take("baz").unwrap().unwrap().as_str().unwrap(), "bar");
+        assert_eq!(
+            values.take("baz").unwrap().unwrap().as_str().unwrap(),
+            "bar"
+        );
         assert!(values.take("baz").unwrap().is_none());
     }
 }
