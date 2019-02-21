@@ -22,7 +22,8 @@ pub mod value;
 pub use value::{Value, ValueRow};
 
 /// TODO
-/// * Provide tables()
+/// * query/execute should take &mut ref so no other query can be run before RowIter is closed
+/// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
@@ -675,6 +676,33 @@ impl<'env> Odbc<'env> {
         })
     }
 
+    pub fn tables<V>(
+        &self,
+        catalog: &str,
+        schema: Option<&str>,
+        table: Option<&str>,
+        table_type: Option<&str>,
+    ) -> Result<
+        RowIter<V, Executed>,
+        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+    >
+    where
+        V: TryFromRow,
+    {
+        debug!("Getting ODBC tables");
+
+        let statement = Statement::with_parent(&self.connection)
+            .wrap_error_while("pairing statement with connection")?;
+        
+        RowIter::from_result(
+            ResultSetState::Data(statement
+                // .tables_str(catalog_name, "schema", "table", "type")
+                .tables_str(catalog, schema.unwrap_or(""), table.unwrap_or(""), table_type.unwrap_or(""))
+                .wrap_error_while("executing direct statement")?),
+            self.utf_16_strings,
+        )
+    }
+
     pub fn prepare<'odbc>(&'odbc self, query: &str) -> Result<PreparedStatement<'odbc>, OdbcError> {
         debug!("Preparing ODBC query: {}", &query);
 
@@ -1001,11 +1029,26 @@ mod query {
 
     #[cfg(feature = "test-sql-server")]
     #[test]
+    fn test_sql_server_tables() {
+        let odbc = Odbc::env().expect("open ODBC");
+        let sql_server =
+            Odbc::connect(&odbc, sql_server_connection_string().as_str()).expect("connect to Hive");
+        let data = sql_server
+            .tables::<ValueRow>("master", Some("sys"), None, Some("view"))
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+        
+        assert!(data.len() > 0);
+    }
+
+    #[cfg(feature = "test-sql-server")]
+    #[test]
     fn test_sql_server_date() {
         let odbc = Odbc::env().expect("open ODBC");
-        let hive =
+        let sql_server =
             Odbc::connect(&odbc, sql_server_connection_string().as_str()).expect("connect to Hive");
-        let data = hive
+        let data = sql_server
             .query::<ValueRow>("SELECT cast('2018-08-24' AS DATE) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
