@@ -2,7 +2,7 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection, DiagnosticRecord, DriverInfo, Environment, NoResult, OdbcType, Prepared,
+    Allocated, Connection, DiagnosticRecord, DriverInfo, Environment, Executed, NoResult, OdbcType, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
 };
 use regex::Regex;
@@ -418,7 +418,7 @@ where
     }
 }
 
-impl<'odbc, V> RowIter<'odbc, V, Allocated>
+impl<'odbc, V> RowIter<'odbc, V, Executed>
 where
     V: TryFromRow,
 {
@@ -690,7 +690,7 @@ impl<'env> Odbc<'env> {
         &self,
         query: &str,
     ) -> Result<
-        RowIter<V, Allocated>,
+        RowIter<V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -704,7 +704,7 @@ impl<'env> Odbc<'env> {
         query: &str,
         bind: F,
     ) -> Result<
-        RowIter<V, Allocated>,
+        RowIter<V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -770,7 +770,7 @@ impl<'env> Odbc<'env> {
         queries: &'q str,
     ) -> impl Iterator<
         Item = Result<
-            RowIter<V, Allocated>,
+            RowIter<V, Executed>,
             QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
         >,
     > + Captures<'t>
