@@ -269,6 +269,7 @@ where
     statement: ExecutedStatement<'odbc, S>,
     odbc_schema: Vec<ColumnDescriptor>,
     schema: V::Schema,
+    columns: i16,
     phantom: PhantomData<V>,
     utf_16_strings: bool,
 }
@@ -283,10 +284,10 @@ where
     V: TryFromRow,
 {
     fn from_result<'t>(result: ResultSetState<'odbc, 't, S>, utf_16_strings: bool) -> Result<RowIter<'odbc, V, S>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>> {
-        let (odbc_schema, statement) = match result {
+        let (odbc_schema, columns, statement) = match result {
             ResultSetState::Data(statement) => {
-                let num_cols = statement.num_result_cols().wrap_error_while("getting number of result columns")?;
-                let odbc_schema = (1..num_cols + 1)
+                let columns = statement.num_result_cols().wrap_error_while("getting number of result columns")?;
+                let odbc_schema = (1..columns + 1)
                         .map(|i| statement.describe_col(i as u16))
                         .collect::<Result<Vec<ColumnDescriptor>, _>>().wrap_error_while("getting column descriptiors")?;
                 let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't reference parameter data any more
@@ -299,17 +300,12 @@ where
                     }
                 }
 
-                // TODO: was this fixed in odbc-rs?
-                // if num_cols == 0 {
-                //     // Invalid cursor state.
-                //     (odbc_schema, None, None)
-                // } else {
-                (odbc_schema, ExecutedStatement::HasResult(statement))
+                (odbc_schema, columns, ExecutedStatement::HasResult(statement))
             }
             ResultSetState::NoData(statement) => {
                 debug!("No data");
                 let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't reference parameter data any more
-                (Vec::new(), ExecutedStatement::NoResult(statement))
+                (Vec::new(), 0, ExecutedStatement::NoResult(statement))
             }
         };
 
@@ -325,6 +321,7 @@ where
             statement,
             odbc_schema,
             schema,
+            columns,
             phantom: PhantomData,
             utf_16_strings,
         })
@@ -332,6 +329,10 @@ where
 
     pub fn schema(&self) -> &V::Schema {
         &self.schema
+    }
+
+    pub fn columns(&self) -> i16 {
+        self.columns
     }
 }
 
@@ -347,6 +348,13 @@ where
             ExecutedStatement::NoResult(statement) => Ok(PreparedStatement(statement)),
         }
     }
+
+    pub fn affected_rows(&self) -> Result<Option<i64>, OdbcError> {
+        match &self.statement {
+            ExecutedStatement::HasResult(statement) => Ok(Some(statement.affected_row_count().wrap_error_while("getting affecter row count from prepared statemnt with result")?)),
+            ExecutedStatement::NoResult(_) => Ok(None),
+        }
+    }
 }
 
 impl<'odbc, V> RowIter<'odbc, V, Allocated>
@@ -360,6 +368,13 @@ where
             statement.close_cursor().wrap_error_while("closing cursor on executed statement")?;
         }
         Ok(())
+    }
+
+    pub fn affected_rows(&self) -> Result<i64, OdbcError> {
+        match &self.statement {
+            ExecutedStatement::HasResult(statement) => Ok(statement.affected_row_count().wrap_error_while("getting affecter row count from allocated statemnt with result")?),
+            ExecutedStatement::NoResult(statement) => Ok(statement.affected_row_count().wrap_error_while("getting affecter row count from allocated statemnt with no result")?),
+        }
     }
 }
 
@@ -390,6 +405,11 @@ where
             ExecutedStatement::HasResult(statement) => statement,
             ExecutedStatement::NoResult(_) => return None,
         };
+
+        // Invalid cursor
+        if self.columns == 0 {
+            return None
+        }
 
         let utf_16_strings = self.utf_16_strings;
 
@@ -524,6 +544,12 @@ pub struct Options {
 
 /// Wrapper around ODBC prepared statement
 pub struct PreparedStatement<'odbc>(Statement<'odbc, 'odbc, odbc::Prepared, odbc::NoResult>);
+
+impl<'odbc> PreparedStatement<'odbc> {
+    pub fn columns(&self) -> Result<i16, OdbcError> {
+        Ok(self.0.num_result_cols().wrap_error_while("getting number of columns in prepared statement")?)
+    }
+}
 
 impl<'env> Odbc<'env> {
     pub fn env() -> Result<EnvironmentV3, OdbcError> {
@@ -975,6 +1001,16 @@ mod query {
         assert_matches!(data[0][3], Some(Value::Integer(ref number)) => assert_eq!(*number, 666));
     }
 
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_prepared() {
+        let odbc = Odbc::env().expect("open ODBC");
+        let db = Odbc::connect(&odbc, sql_server_connection_string().as_str())
+            .expect("connect to SQL Server");
+
+        let statement = db.prepare("SELECT ?, ?, ?, ? AS val;").expect("prepare statement");
+        assert_eq!(statement.columns().unwrap(), 4);
+    }
 
     #[cfg(feature = "test-hive")]
     #[test]
