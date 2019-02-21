@@ -261,25 +261,21 @@ impl TryFromRow for ValueRow {
     }
 }
 
-// impl TryFromRow for Value {
-//     type Schema = Schema;
-//     type Error = NoError;
-//     fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-//         Ok(values.into())
-//     }
-// }
-
 /// Iterate rows converting them to given value type
 pub struct RowIter<'odbc, V, S>
 where
     V: TryFromRow
 {
-    statement: Option<odbc::Statement<'odbc, 'odbc, S, odbc::HasResult>>,
-    no_results_statement: Option<odbc::Statement<'odbc, 'odbc, S, odbc::NoResult>>,
+    statement: ExecutedStatement<'odbc, S>,
     odbc_schema: Vec<ColumnDescriptor>,
     schema: V::Schema,
     phantom: PhantomData<V>,
     utf_16_strings: bool,
+}
+
+enum ExecutedStatement<'odbc, S> {
+    HasResult(odbc::Statement<'odbc, 'odbc, S, odbc::HasResult>),
+    NoResult(odbc::Statement<'odbc, 'odbc, S, odbc::NoResult>),
 }
 
 impl<'odbc, V, S> RowIter<'odbc, V, S>
@@ -287,7 +283,7 @@ where
     V: TryFromRow,
 {
     fn from_result<'t>(result: ResultSetState<'odbc, 't, S>, utf_16_strings: bool) -> Result<RowIter<'odbc, V, S>, QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>> {
-        let (odbc_schema, statement, no_results_statement) = match result {
+        let (odbc_schema, statement) = match result {
             ResultSetState::Data(statement) => {
                 let num_cols = statement.num_result_cols().wrap_error_while("getting number of result columns")?;
                 let odbc_schema = (1..num_cols + 1)
@@ -303,17 +299,17 @@ where
                     }
                 }
 
-                if num_cols == 0 {
-                    // Invalid cursor state.
-                    (odbc_schema, None, None)
-                } else {
-                    (odbc_schema, Some(statement), None)
-                }
+                // TODO: was this fixed in odbc-rs?
+                // if num_cols == 0 {
+                //     // Invalid cursor state.
+                //     (odbc_schema, None, None)
+                // } else {
+                (odbc_schema, ExecutedStatement::HasResult(statement))
             }
             ResultSetState::NoData(statement) => {
                 debug!("No data");
                 let statement = statement.reset_parameters().wrap_error_while("reseting bound parameters on statement")?; // don't reference parameter data any more
-                (Vec::new(), None, Some(statement))
+                (Vec::new(), ExecutedStatement::NoResult(statement))
             }
         };
 
@@ -327,7 +323,6 @@ where
 
         Ok(RowIter {
             statement,
-            no_results_statement,
             odbc_schema,
             schema,
             phantom: PhantomData,
@@ -347,10 +342,9 @@ where
     pub fn close(
         self,
     ) -> Result<PreparedStatement<'odbc>, OdbcError> {
-        if let Some(statement) = self.statement {
-            Ok(PreparedStatement(statement.close_cursor().wrap_error_while("clocing cursor")?))
-        } else {
-            Ok(PreparedStatement(self.no_results_statement.expect("statment or no_results_statement")))
+        match self.statement {
+            ExecutedStatement::HasResult(statement) => Ok(PreparedStatement(statement.close_cursor().wrap_error_while("closing cursor on executed prepared statement")?)),
+            ExecutedStatement::NoResult(statement) => Ok(PreparedStatement(statement)),
         }
     }
 }
@@ -362,8 +356,8 @@ where
     pub fn close(
         self,
     ) -> Result<(), OdbcError> {
-        if let Some(statement) = self.statement {
-            statement.close_cursor().wrap_error_while("closing cursor")?;
+        if let ExecutedStatement::HasResult(statement) = self.statement {
+            statement.close_cursor().wrap_error_while("closing cursor on executed statement")?;
         }
         Ok(())
     }
@@ -392,14 +386,15 @@ where
             cursor_get_data::<S, T>(cursor, index).map(|value| value.map(Into::into))
         }
 
-        if self.statement.is_none() {
-            return None;
-        }
+        let statement = match &mut self.statement {
+            ExecutedStatement::HasResult(statement) => statement,
+            ExecutedStatement::NoResult(_) => return None,
+        };
 
         let utf_16_strings = self.utf_16_strings;
 
         // TODO: transpose?
-        match self.statement.as_mut().unwrap().fetch().wrap_error_while("fetching row") {
+        match statement.fetch().wrap_error_while("fetching row") {
             Err(err) => Some(Err(err.into())),
             Ok(Some(mut cursor)) => {
                 Some(
