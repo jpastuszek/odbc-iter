@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
-pub use odbc;
 use odbc::{
-    ColumnDescriptor, Connection, DriverInfo, Environment, NoResult, OdbcType, Allocated, Prepared,
+    Connection, DriverInfo, Environment, NoResult, OdbcType, Allocated, Prepared,
     ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3, DiagnosticRecord
 };
 use regex::Regex;
@@ -13,6 +12,10 @@ use error_context::prelude::*;
 use std::fmt;
 use std::error::Error;
 use std::string::FromUtf16Error;
+
+// Schema
+pub use odbc::ffi::SqlDataType;
+pub use odbc::ColumnDescriptor;
 
 pub mod schema_access;
 pub mod value;
@@ -315,6 +318,7 @@ where
             }
         }
 
+        // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
         let schema = V::Schema::try_from_schema(&odbc_schema).map_err(QueryError::FromSchemaError)?;
 
         Ok(RowIter {
@@ -351,7 +355,7 @@ where
 
     pub fn affected_rows(&self) -> Result<Option<i64>, OdbcError> {
         match &self.statement {
-            ExecutedStatement::HasResult(statement) => Ok(Some(statement.affected_row_count().wrap_error_while("getting affecter row count from prepared statemnt with result")?)),
+            ExecutedStatement::HasResult(statement) => Ok(Some(statement.affected_row_count().wrap_error_while("getting affected row count from prepared statemnt with result")?)),
             ExecutedStatement::NoResult(_) => Ok(None),
         }
     }
@@ -372,8 +376,8 @@ where
 
     pub fn affected_rows(&self) -> Result<i64, OdbcError> {
         match &self.statement {
-            ExecutedStatement::HasResult(statement) => Ok(statement.affected_row_count().wrap_error_while("getting affecter row count from allocated statemnt with result")?),
-            ExecutedStatement::NoResult(statement) => Ok(statement.affected_row_count().wrap_error_while("getting affecter row count from allocated statemnt with no result")?),
+            ExecutedStatement::HasResult(statement) => Ok(statement.affected_row_count().wrap_error_while("getting affected row count from allocated statemnt with result")?),
+            ExecutedStatement::NoResult(statement) => Ok(statement.affected_row_count().wrap_error_while("getting affected row count from allocated statemnt with no result")?),
         }
     }
 }
@@ -548,6 +552,10 @@ pub struct PreparedStatement<'odbc>(Statement<'odbc, 'odbc, odbc::Prepared, odbc
 impl<'odbc> PreparedStatement<'odbc> {
     pub fn columns(&self) -> Result<i16, OdbcError> {
         Ok(self.0.num_result_cols().wrap_error_while("getting number of columns in prepared statement")?)
+    }
+
+    pub fn schema(&self) -> Result<Schema, OdbcError> {
+       Ok((1..self.columns()? + 1).map(|i| self.0.describe_col(i as u16)).collect::<Result<Vec<ColumnDescriptor>,_>>().wrap_error_while("getting column description")?)
     }
 }
 
@@ -1003,13 +1011,27 @@ mod query {
 
     #[cfg(feature = "test-sql-server")]
     #[test]
-    fn test_sql_server_prepared() {
+    fn test_sql_server_prepared_columns() {
         let odbc = Odbc::env().expect("open ODBC");
         let db = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
         let statement = db.prepare("SELECT ?, ?, ?, ? AS val;").expect("prepare statement");
         assert_eq!(statement.columns().unwrap(), 4);
+    }
+
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_prepared_schema() {
+        let odbc = Odbc::env().expect("open ODBC");
+        let db = Odbc::connect(&odbc, sql_server_connection_string().as_str())
+            .expect("connect to SQL Server");
+
+        let statement = db.prepare("SELECT ?, CAST(? as INTEGER) as foo, ?, ? AS val;").expect("prepare statement");
+        let schema = statement.schema().unwrap();
+        assert_eq!(schema.len(), 4);
+        assert_eq!(schema[1].name, "foo");
+        assert_eq!(schema[1].data_type, SqlDataType::SQL_INTEGER);
     }
 
     #[cfg(feature = "test-hive")]
