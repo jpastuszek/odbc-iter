@@ -564,12 +564,12 @@ impl<'env> Odbc<'env> {
         odbc::create_environment_v3().wrap_error_while("creating v3 environment").map_err(Into::into)
     }
 
-    pub fn list_drivers(odbc: &mut Environment<Version3>) -> Result<Vec<DriverInfo>, OdbcError> {
+    pub fn list_drivers(odbc: &mut EnvironmentV3) -> Result<Vec<DriverInfo>, OdbcError> {
         odbc.drivers().wrap_error_while("listing drivers").map_err(Into::into)
     }
 
     pub fn connect(
-        env: &'env Environment<Version3>,
+        env: &'env EnvironmentV3,
         connection_string: &str,
     ) -> Result<Odbc<'env>, OdbcError> {
         Self::connect_with_options(
@@ -582,7 +582,7 @@ impl<'env> Odbc<'env> {
     }
 
     pub fn connect_with_options(
-        env: &'env Environment<Version3>,
+        env: &'env EnvironmentV3,
         connection_string: &str,
         options: Options,
     ) -> Result<Odbc<'env>, OdbcError> {
