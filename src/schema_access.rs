@@ -1,7 +1,7 @@
 use crate::*;
 
 pub struct SchemaAccess<'v> {
-    value: Values,
+    value: ValueRow,
     schema: &'v Schema,
 }
 
@@ -9,7 +9,7 @@ pub trait WithSchemaAccess {
     fn with_schema_access<'i>(self, schema: &'i Schema) -> SchemaAccess<'i>;
 }
 
-impl WithSchemaAccess for Values {
+impl WithSchemaAccess for ValueRow {
     fn with_schema_access<'i>(self, schema: &'i Schema) -> SchemaAccess<'i> {
         SchemaAccess {
             value: self,

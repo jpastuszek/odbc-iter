@@ -16,7 +16,7 @@ use std::string::FromUtf16Error;
 
 pub mod schema_access;
 pub mod value;
-pub use value::{Value, Values};
+pub use value::{Value, ValueRow};
 
 /// TODO
 /// * Provide affected_row_count()
@@ -250,13 +250,13 @@ pub trait TryFromRow: Sized {
     /// Type of schema for the target value
     type Schema: TryFromSchema;
     type Error: Error + 'static;
-    fn try_from_row(values: Values, schema: &Self::Schema) -> Result<Self, Self::Error>;
+    fn try_from_row(values: ValueRow, schema: &Self::Schema) -> Result<Self, Self::Error>;
 }
 
-impl TryFromRow for Values {
+impl TryFromRow for ValueRow {
     type Schema = Schema;
     type Error = NoError;
-    fn try_from_row(values: Values, _schema: &Self::Schema) -> Result<Self, Self::Error> {
+    fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values)
     }
 }
@@ -264,7 +264,7 @@ impl TryFromRow for Values {
 // impl TryFromRow for Value {
 //     type Schema = Schema;
 //     type Error = NoError;
-//     fn try_from_row(values: Values, _schema: &Self::Schema) -> Result<Self, Self::Error> {
+//     fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
 //         Ok(values.into())
 //     }
 // }
@@ -730,7 +730,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT explode(x) AS n FROM (SELECT array(42, 24) AS x) d;")
+            .query::<ValueRow>("SELECT explode(x) AS n FROM (SELECT array(42, 24) AS x) d;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -746,7 +746,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT 42, 24;")
+            .query::<ValueRow>("SELECT 42, 24;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -761,7 +761,7 @@ mod query {
         let odbc = Odbc::env().expect("open ODBC");
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
-        let data = hive.query::<Values>("SELECT cast(127 AS TINYINT), cast(32767 AS SMALLINT), cast(2147483647 AS INTEGER), cast(9223372036854775807 AS BIGINT);")
+        let data = hive.query::<ValueRow>("SELECT cast(127 AS TINYINT), cast(32767 AS SMALLINT), cast(2147483647 AS INTEGER), cast(9223372036854775807 AS BIGINT);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -779,7 +779,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT true, false, CAST(NULL AS BOOLEAN)")
+            .query::<ValueRow>("SELECT true, false, CAST(NULL AS BOOLEAN)")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -796,7 +796,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT cast('foo' AS STRING), cast('bar' AS VARCHAR);")
+            .query::<ValueRow>("SELECT cast('foo' AS STRING), cast('bar' AS VARCHAR);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -811,7 +811,7 @@ mod query {
         let odbc = Odbc::env().expect("open ODBC");
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to Hive");
-        let data = hive.query::<Values>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
+        let data = hive.query::<ValueRow>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -829,7 +829,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT cast(1.5 AS FLOAT), cast(2.5 AS DOUBLE);")
+            .query::<ValueRow>("SELECT cast(1.5 AS FLOAT), cast(2.5 AS DOUBLE);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -845,7 +845,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT cast(NULL AS FLOAT), cast(NULL AS DOUBLE);")
+            .query::<ValueRow>("SELECT cast(NULL AS FLOAT), cast(NULL AS DOUBLE);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -861,7 +861,7 @@ mod query {
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT cast('2018-08-24' AS DATE) AS date")
+            .query::<ValueRow>("SELECT cast('2018-08-24' AS DATE) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -876,7 +876,7 @@ mod query {
         let hive = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to Hive");
         let data = hive
-            .query::<Values>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
+            .query::<ValueRow>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -892,7 +892,7 @@ mod query {
     impl TryFromRow for Foo {
         type Schema = Schema;
         type Error = NoError;
-        fn try_from_row(mut values: Values, _schema: &Schema) -> Result<Self, NoError> {
+        fn try_from_row(mut values: ValueRow, _schema: &Schema) -> Result<Self, NoError> {
             Ok(values.pop().map(|val| Foo {
                 val: val.and_then(|v| v.as_integer()).expect("val to be an integer"),
             }).expect("value"))
@@ -941,7 +941,7 @@ mod query {
 
         let val = [42, 24, 32, 666];
 
-        let data: Vec<Values> = db
+        let data: Vec<ValueRow> = db
             .query_with_parameters("SELECT ?, ?, ?, ? AS val;", |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
             })
@@ -966,7 +966,7 @@ mod query {
 
         let statement = db.prepare("SELECT ?, ?, ?, ? AS val;").expect("prepare statement");
 
-        let data: Vec<Values> = db
+        let data: Vec<ValueRow> = db
             .execute_with_parameters(statement, |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
             })
@@ -988,7 +988,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>("USE default;")
+            .query::<ValueRow>("USE default;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1003,7 +1003,7 @@ mod query {
         let sql_server = Odbc::connect(&odbc, sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
         let data = sql_server
-            .query::<Values>(&format!("SELECT N'{}'", LONG_STRING))
+            .query::<ValueRow>(&format!("SELECT N'{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1018,7 +1018,7 @@ mod query {
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1033,7 +1033,7 @@ mod query {
         let monetdb = Odbc::connect(&odbc, monetdb_connection_string().as_str())
             .expect("connect to MonetDB");
         let data = monetdb
-            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1057,7 +1057,7 @@ mod query {
 
         let statement = sql_server.prepare("SELECT ? AS val;").expect("prepare statement");
 
-        let data: Vec<Values> = sql_server
+        let data: Vec<ValueRow> = sql_server
             .execute_with_parameters(statement, |q| {
                 q.bind(&utf_16_string)
             })
@@ -1082,7 +1082,7 @@ mod query {
         .expect("connect to Hive");
         
         let data = hive
-            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1104,7 +1104,7 @@ mod query {
         .expect("connect to MonetDB");
 
         let data = monetdb
-            .query::<Values>(&format!("SELECT '{}'", LONG_STRING))
+            .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1264,7 +1264,7 @@ SELECT *;
         let hive =
             Odbc::connect(&odbc, hive_connection_string().as_str()).expect("connect to Hive");
         let data = hive
-            .query_multiple::<Values>("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
+            .query_multiple::<ValueRow>("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
             .flat_map(|i| i.expect("failed to run query"))
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");

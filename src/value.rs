@@ -73,23 +73,30 @@ impl Value {
         }
     }
 
-    pub fn as_timestamp(&self) -> Option<&NaiveDateTime> {
+    pub fn into_string(self) -> Result<String, Value> {
         match self {
-            Value::Timestamp(value) => Some(&value),
+            Value::String(value) => Ok(value),
+            _ => Err(self)
+        }
+    }
+
+    pub fn as_timestamp(&self) -> Option<NaiveDateTime> {
+        match self {
+            Value::Timestamp(value) => Some(*value),
             _ => None
         }
     }
 
-    pub fn as_date(&self) -> Option<&NaiveDate> {
+    pub fn as_date(&self) -> Option<NaiveDate> {
         match self {
-            Value::Date(value) => Some(&value),
+            Value::Date(value) => Some(*value),
             _ => None
         }
     }
 
-    pub fn as_time(&self) -> Option<&NaiveTime> {
+    pub fn as_time(&self) -> Option<NaiveTime> {
         match self {
-            Value::Time(value) => Some(&value),
+            Value::Time(value) => Some(*value),
             _ => None
         }
     }
@@ -143,6 +150,12 @@ impl From<String> for Value {
     }
 }
 
+impl From<NaiveDateTime> for Value {
+    fn from(value: NaiveDateTime) -> Value {
+        Value::Timestamp(value)
+    }
+}
+
 impl From<SqlTimestamp> for Value {
     fn from(value: SqlTimestamp) -> Value {
         Value::Timestamp(
@@ -152,9 +165,21 @@ impl From<SqlTimestamp> for Value {
     }
 }
 
+impl From<NaiveDate> for Value {
+    fn from(value: NaiveDate) -> Value {
+        Value::Date(value)
+    }
+}
+
 impl From<SqlDate> for Value {
     fn from(value: SqlDate) -> Value {
         Value::Date(NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32))
+    }
+}
+
+impl From<NaiveTime> for Value {
+    fn from(value: NaiveTime) -> Value {
+        Value::Time(value)
     }
 }
 
@@ -170,4 +195,4 @@ impl From<SqlSsTime2> for Value {
     }
 }
 
-pub type Values = Vec<Option<Value>>;
+pub type ValueRow = Vec<Option<Value>>;
