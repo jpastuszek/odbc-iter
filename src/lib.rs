@@ -2,8 +2,9 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, Executed, NoResult, OdbcType, Prepared,
-    ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp, Statement, Version3,
+    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, Executed,
+    NoResult, OdbcType, Prepared, ResultSetState, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp,
+    Statement, Version3,
 };
 use regex::Regex;
 // use std::cell::{Ref, RefCell};
@@ -23,7 +24,6 @@ pub use value::{Value, ValueRow};
 
 /// TODO
 /// * impl Debug on all structs
-/// * query/execute should take &mut ref so no other query can be run before RowIter is closed
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
@@ -39,6 +39,12 @@ impl<'a, T: ?Sized> Captures<'a> for T {}
 
 pub trait Captures2<'a> {}
 impl<'a, T: ?Sized> Captures2<'a> for T {}
+
+pub trait Captures3<'a> {}
+impl<'a, T: ?Sized> Captures3<'a> for T {}
+
+pub trait Captures4<'a> {}
+impl<'a, T: ?Sized> Captures4<'a> for T {}
 
 /// General ODBC initialization and connection errors
 #[derive(Debug)]
@@ -285,7 +291,7 @@ impl TryFromRow for ValueRow {
 }
 
 /// Iterate rows converting them to given value type
-/// 
+///
 pub struct RowIter<'h, 'c, V, S>
 where
     V: TryFromRow,
@@ -304,7 +310,7 @@ where
 {
     fn drop(&mut self) {
         // We need to make sure statement is dropped; implementing Drop forces use of drop(row_iter) if not consumed before another query
-        // Should Statement not impl Drop itself? 
+        // Should Statement not impl Drop itself?
         drop(self.statement.take())
     }
 }
@@ -419,11 +425,7 @@ where
                 let rows = statement.affected_row_count().wrap_error_while(
                     "getting affected row count from prepared statemnt with result",
                 )?;
-                Ok(if rows >= 0 {
-                    Some(rows)
-                } else {
-                    None
-                })
+                Ok(if rows >= 0 { Some(rows) } else { None })
             }
             ExecutedStatement::NoResult(_) => Ok(None),
         }
@@ -456,11 +458,7 @@ where
                 )?
             }
         };
-        Ok(if rows >= 0 {
-            Some(rows)
-        } else {
-            None
-        })
+        Ok(if rows >= 0 { Some(rows) } else { None })
     }
 }
 
@@ -644,11 +642,11 @@ impl<'h> PreparedStatement<'h> {
 }
 
 pub struct Odbc {
-    environment: EnvironmentV3
+    environment: EnvironmentV3,
 }
 
 impl Odbc {
-    pub fn new() ->  Result<Odbc, OdbcError> {
+    pub fn new() -> Result<Odbc, OdbcError> {
         odbc::create_environment_v3()
             .wrap_error_while("creating v3 environment")
             .map_err(Into::into)
@@ -658,15 +656,13 @@ impl Odbc {
 
 impl Odbc {
     pub fn list_drivers(&mut self) -> Result<Vec<DriverInfo>, OdbcError> {
-        self.environment.drivers()
+        self.environment
+            .drivers()
             .wrap_error_while("listing drivers")
             .map_err(Into::into)
     }
 
-    pub fn connect(
-        &self,
-        connection_string: &str,
-    ) -> Result<Connection, OdbcError> {
+    pub fn connect(&self, connection_string: &str) -> Result<Connection, OdbcError> {
         self.connect_with_options(
             connection_string,
             Options {
@@ -727,21 +723,25 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
-        let result_set: ResultSetState<'c, 'c, Allocated> = ResultSetState::Data(statement
-                .tables_str(catalog, schema.unwrap_or(""), table.unwrap_or(""), table_type.unwrap_or(""))
-                .wrap_error_while("executing direct statement")?);
-        
-        RowIter::from_result(
-            self,
-            result_set,
-            self.0.utf_16_strings,
-        )
+        let result_set: ResultSetState<'c, 'c, Allocated> = ResultSetState::Data(
+            statement
+                .tables_str(
+                    catalog,
+                    schema.unwrap_or(""),
+                    table.unwrap_or(""),
+                    table_type.unwrap_or(""),
+                )
+                .wrap_error_while("executing direct statement")?,
+        );
+
+        RowIter::from_result(self, result_set, self.0.utf_16_strings)
     }
 
     pub fn prepare(&'h mut self, query: &str) -> Result<PreparedStatement<'c>, OdbcError> {
         debug!("Preparing ODBC query: {}", &query);
 
-        let statement = self.statement()?
+        let statement = self
+            .statement()?
             .prepare(query)
             .wrap_error_while("preparing query")?;
 
@@ -771,9 +771,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     >
     where
         V: TryFromRow,
-        F: FnOnce(
-            Binder<'c, 'c, Allocated>,
-        ) -> Result<Binder<'c, 't, Allocated>, BindError>,
+        F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
 
@@ -827,18 +825,20 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     pub fn query_multiple<'q: 'h>(
         &'h mut self,
         queries: &'q str,
-    ) -> impl Iterator<
-        Item = Result<
-            Vec<ValueRow>,
-            QueryError<NoError, NoError>,
-        >,
-    > + Captures<'q> + Captures<'h> + Captures<'c> + Captures<'o> 
-    {
+    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError<NoError, NoError>>>
+                 + Captures<'q>
+                 + Captures2<'h>
+                 + Captures3<'c>
+                 + Captures4<'o> {
         split_queries(queries).map(move |query| {
             query
                 .map_err(Into::into)
                 .and_then(|query| self.query(query))
-                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>().wrap_error_while("collecing rows from sub-query").map_err(Into::into))
+                .and_then(|rows| {
+                    rows.collect::<Result<Vec<_>, _>>()
+                        .wrap_error_while("collecing rows from sub-query")
+                        .map_err(Into::into)
+                })
         })
     }
 }
@@ -926,10 +926,12 @@ mod query {
     #[test]
     fn test_hive_multiple_rows() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("SELECT explode(x) AS n FROM (SELECT array(42, 24) AS x) d;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -943,10 +945,12 @@ mod query {
     #[test]
     fn test_hive_multiple_columns() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("SELECT 42, 24;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -960,8 +964,9 @@ mod query {
     #[test]
     fn test_hive_types_integer() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
         let data = hive.handle()
             .query::<ValueRow>("SELECT cast(127 AS TINYINT), cast(32767 AS SMALLINT), cast(2147483647 AS INTEGER), cast(9223372036854775807 AS BIGINT);")
@@ -979,10 +984,12 @@ mod query {
     #[test]
     fn test_hive_types_boolean() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("SELECT true, false, CAST(NULL AS BOOLEAN)")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -997,10 +1004,12 @@ mod query {
     #[test]
     fn test_hive_types_string() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("SELECT cast('foo' AS STRING), cast('bar' AS VARCHAR);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1014,8 +1023,9 @@ mod query {
     #[test]
     fn test_sql_server_types_string() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(sql_server_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(sql_server_connection_string().as_str())
+            .expect("connect to Hive");
 
         let data = hive.handle()
             .query::<ValueRow>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
@@ -1033,10 +1043,12 @@ mod query {
     #[test]
     fn test_hive_types_float() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("SELECT cast(1.5 AS FLOAT), cast(2.5 AS DOUBLE);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1050,10 +1062,12 @@ mod query {
     #[test]
     fn test_hive_types_null() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("SELECT cast(NULL AS FLOAT), cast(NULL AS DOUBLE);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1067,15 +1081,17 @@ mod query {
     #[test]
     fn test_sql_server_tables() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server =
-            odbc.connect(sql_server_connection_string().as_str()).expect("connect to Hive");
+        let mut sql_server = odbc
+            .connect(sql_server_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = sql_server.handle()
+        let data = sql_server
+            .handle()
             .tables::<ValueRow>("master", Some("sys"), None, Some("view"))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
-        
+
         assert!(data.len() > 0);
     }
 
@@ -1083,10 +1099,12 @@ mod query {
     #[test]
     fn test_sql_server_date() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server =
-            odbc.connect(sql_server_connection_string().as_str()).expect("connect to Hive");
+        let mut sql_server = odbc
+            .connect(sql_server_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = sql_server.handle()
+        let data = sql_server
+            .handle()
             .query::<ValueRow>("SELECT cast('2018-08-24' AS DATE) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1099,10 +1117,12 @@ mod query {
     #[test]
     fn test_sql_server_time() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc.connect(sql_server_connection_string().as_str())
+        let mut sql_server = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
-        let data = sql_server.handle()
+        let data = sql_server
+            .handle()
             .query::<ValueRow>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1115,7 +1135,8 @@ mod query {
     #[test]
     fn test_sql_server_affected_rows_query() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc.connect(sql_server_connection_string().as_str())
+        let mut sql_server = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
         let mut db = sql_server.handle();
@@ -1128,7 +1149,9 @@ mod query {
         data.close().ok();
 
         let data = db
-            .query::<ValueRow>("SELECT foo INTO #bar FROM (SELECT 1 as foo UNION SELECT 2 as foo) a")
+            .query::<ValueRow>(
+                "SELECT foo INTO #bar FROM (SELECT 1 as foo UNION SELECT 2 as foo) a",
+            )
             .expect("failed to run insert query");
 
         assert_eq!(data.affected_rows().unwrap().unwrap(), 2);
@@ -1138,7 +1161,8 @@ mod query {
     #[test]
     fn test_sql_server_affected_rows_prepared() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc.connect(sql_server_connection_string().as_str())
+        let mut sql_server = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
         let mut db = sql_server.handle();
@@ -1186,10 +1210,12 @@ mod query {
     #[test]
     fn test_hive_custom_type() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let foo = hive.handle()
+        let foo = hive
+            .handle()
             .query::<Foo>("SELECT 42 AS val;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1202,12 +1228,14 @@ mod query {
     #[test]
     fn test_sql_server_query_with_parameters() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc.connect(sql_server_connection_string().as_str())
+        let mut db = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
         let val = 42;
 
-        let foo: Vec<Foo> = db.handle()
+        let foo: Vec<Foo> = db
+            .handle()
             .query_with_parameters("SELECT ? AS val;", |q| q.bind(&val))
             .expect("failed to run query")
             .collect::<Result<_, _>>()
@@ -1220,12 +1248,14 @@ mod query {
     #[test]
     fn test_sql_server_query_with_many_parameters() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc.connect(sql_server_connection_string().as_str())
+        let mut db = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
         let val = [42, 24, 32, 666];
 
-        let data: Vec<ValueRow> = db.handle()
+        let data: Vec<ValueRow> = db
+            .handle()
             .query_with_parameters("SELECT ?, ?, ?, ? AS val;", |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
             })
@@ -1243,7 +1273,8 @@ mod query {
     #[test]
     fn test_sql_server_query_with_many_parameters_prepared() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc.connect(sql_server_connection_string().as_str())
+        let mut db = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
         let val = [42, 24, 32, 666];
@@ -1272,10 +1303,12 @@ mod query {
     #[test]
     fn test_sql_server_prepared_columns() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc.connect(sql_server_connection_string().as_str())
+        let mut db = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
-        let statement = db.handle()
+        let statement = db
+            .handle()
             .prepare("SELECT ?, ?, ?, ? AS val;")
             .expect("prepare statement");
 
@@ -1286,10 +1319,12 @@ mod query {
     #[test]
     fn test_sql_server_prepared_schema() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc.connect(sql_server_connection_string().as_str())
+        let mut db = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
-        let statement = db.handle()
+        let statement = db
+            .handle()
             .prepare("SELECT ?, CAST(? as INTEGER) as foo, ?, ? AS val;")
             .expect("prepare statement");
 
@@ -1303,10 +1338,12 @@ mod query {
     #[test]
     fn test_hive_empty_data_set() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>("USE default;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1319,10 +1356,12 @@ mod query {
     #[test]
     fn test_sql_server_long_string_fetch_utf_8() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc.connect(sql_server_connection_string().as_str())
+        let mut sql_server = odbc
+            .connect(sql_server_connection_string().as_str())
             .expect("connect to SQL Server");
 
-        let data = sql_server.handle()
+        let data = sql_server
+            .handle()
             .query::<ValueRow>(&format!("SELECT N'{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1335,10 +1374,12 @@ mod query {
     #[test]
     fn test_hive_long_string_fetch_utf_8() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1351,10 +1392,12 @@ mod query {
     #[test]
     fn test_moentdb_long_string_fetch_utf_8() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb =
-            odbc.connect(monetdb_connection_string().as_str()).expect("connect to MonetDB");
+        let mut monetdb = odbc
+            .connect(monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
 
-        let data = monetdb.handle()
+        let data = monetdb
+            .handle()
             .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1367,13 +1410,14 @@ mod query {
     #[test]
     fn test_sql_server_long_string_fetch_utf_16_bind() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc.connect_with_options(
-            sql_server_connection_string().as_str(),
-            Options {
-                utf_16_strings: true,
-            },
-        )
-        .expect("connect to SQL Server");
+        let mut sql_server = odbc
+            .connect_with_options(
+                sql_server_connection_string().as_str(),
+                Options {
+                    utf_16_strings: true,
+                },
+            )
+            .expect("connect to SQL Server");
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
 
@@ -1396,15 +1440,17 @@ mod query {
     #[test]
     fn test_hive_long_string_fetch_utf_16() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc.connect_with_options(
-            hive_connection_string().as_str(),
-            Options {
-                utf_16_strings: true,
-            },
-        )
-        .expect("connect to Hive");
+        let mut hive = odbc
+            .connect_with_options(
+                hive_connection_string().as_str(),
+                Options {
+                    utf_16_strings: true,
+                },
+            )
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1417,15 +1463,17 @@ mod query {
     #[test]
     fn test_moentdb_long_string_fetch_utf_16() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb = odbc.connect_with_options(
-            monetdb_connection_string().as_str(),
-            Options {
-                utf_16_strings: true,
-            },
-        )
-        .expect("connect to MonetDB");
+        let mut monetdb = odbc
+            .connect_with_options(
+                monetdb_connection_string().as_str(),
+                Options {
+                    utf_16_strings: true,
+                },
+            )
+            .expect("connect to MonetDB");
 
-        let data = monetdb.handle()
+        let data = monetdb
+            .handle()
             .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1583,10 +1631,12 @@ SELECT *;
     #[test]
     fn test_hive_multiple_queries() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive =
-            odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
+        let mut hive = odbc
+            .connect(hive_connection_string().as_str())
+            .expect("connect to Hive");
 
-        let data = hive.handle()
+        let data = hive
+            .handle()
             .query_multiple("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
             .flat_map(|i| i.expect("failed to run query"))
             .collect::<Vec<_>>();
