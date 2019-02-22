@@ -926,7 +926,7 @@ mod query {
     #[test]
     fn test_hive_multiple_rows() {
         let odbc = Odbc::new().expect("open ODBC");
-        let hive =
+        let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
 
         let data = hive.handle()
@@ -943,7 +943,7 @@ mod query {
     #[test]
     fn test_hive_multiple_columns() {
         let odbc = Odbc::new().expect("open ODBC");
-        let hive =
+        let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
 
         let data = hive.handle()
@@ -960,7 +960,7 @@ mod query {
     #[test]
     fn test_hive_types_integer() {
         let odbc = Odbc::new().expect("open ODBC");
-        let hive =
+        let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
 
         let data = hive.handle()
@@ -979,7 +979,7 @@ mod query {
     #[test]
     fn test_hive_types_boolean() {
         let odbc = Odbc::new().expect("open ODBC");
-        let hive =
+        let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
 
         let data = hive.handle()
@@ -997,7 +997,7 @@ mod query {
     #[test]
     fn test_hive_types_string() {
         let odbc = Odbc::new().expect("open ODBC");
-        let hive =
+        let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
 
         let data = hive.handle()
@@ -1305,7 +1305,8 @@ mod query {
         let odbc = Odbc::new().expect("open ODBC");
         let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
-        let data = hive
+
+        let data = hive.handle()
             .query::<ValueRow>("USE default;")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1336,7 +1337,8 @@ mod query {
         let odbc = Odbc::new().expect("open ODBC");
         let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
-        let data = hive
+
+        let data = hive.handle()
             .query::<ValueRow>(&format!("SELECT '{}'", LONG_STRING))
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1581,13 +1583,13 @@ SELECT *;
     #[test]
     fn test_hive_multiple_queries() {
         let odbc = Odbc::new().expect("open ODBC");
-        let hive =
+        let mut hive =
             odbc.connect(hive_connection_string().as_str()).expect("connect to Hive");
-        let data = hive
-            .query_multiple::<ValueRow>("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
+
+        let data = hive.handle()
+            .query_multiple("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
             .flat_map(|i| i.expect("failed to run query"))
-            .collect::<Result<Vec<_>, _>>()
-            .expect("fetch data");
+            .collect::<Vec<_>>();
 
         assert_matches!(data[0][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 42));
         assert_matches!(data[1][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 24));
