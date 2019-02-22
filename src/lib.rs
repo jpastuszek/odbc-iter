@@ -286,7 +286,7 @@ impl TryFromRow for ValueRow {
 
 /// Iterate rows converting them to given value type
 /// 
-pub struct RowIter<'h, 'c, 'o, V, S>
+pub struct RowIter<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -295,11 +295,10 @@ where
     schema: V::Schema,
     columns: i16,
     utf_16_strings: bool,
-    phantom: PhantomData<V>,
-    handle: &'h Handle<'c, 'o>, //TODO: can be Phantom?
+    phantom: PhantomData<&'h V>,
 }
 
-impl<'h, 'c, 'o, V, S> Drop for RowIter<'h, 'c, 'o, V, S>
+impl<'h, 'c, V, S> Drop for RowIter<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -315,16 +314,16 @@ enum ExecutedStatement<'c, S> {
     NoResult(odbc::Statement<'c, 'c, S, odbc::NoResult>),
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> RowIter<'h, 'c, 'o, V, S>
+impl<'h, 'c: 'h, 'o: 'c, V, S> RowIter<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
     fn from_result(
-        handle: &'h Handle<'c, 'o>,
+        _handle: &'h Handle<'c, 'o>,
         result: ResultSetState<'c, '_, S>,
         utf_16_strings: bool,
     ) -> Result<
-        RowIter<'h, 'c, 'o, V, S>,
+        RowIter<'h, 'c, V, S>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     > {
         let (odbc_schema, columns, statement) = match result {
@@ -381,7 +380,6 @@ where
             V::Schema::try_from_schema(&odbc_schema).map_err(QueryError::FromSchemaError)?;
 
         Ok(RowIter {
-            handle,
             statement: Some(statement),
             odbc_schema,
             schema,
@@ -400,7 +398,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> RowIter<'h, 'c, 'o, V, Prepared>
+impl<'h, 'c: 'h, 'o: 'c, V> RowIter<'h, 'c, V, Prepared>
 where
     V: TryFromRow,
 {
@@ -432,7 +430,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> RowIter<'h, 'c, 'o, V, Executed>
+impl<'h, 'c: 'h, 'o: 'c, V> RowIter<'h, 'c, V, Executed>
 where
     V: TryFromRow,
 {
@@ -466,7 +464,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for RowIter<'h, 'c, 'o, V, S>
+impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for RowIter<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -721,7 +719,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         table: Option<&'i str>,
         table_type: Option<&'i str>,
     ) -> Result<
-        RowIter<'h, 'c, 'o, V, Executed>,
+        RowIter<'h, 'c, V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -754,7 +752,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         &'h mut self,
         query: &str,
     ) -> Result<
-        RowIter<'h, 'c, 'o, V, Executed>,
+        RowIter<'h, 'c, V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -768,7 +766,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         query: &str,
         bind: F,
     ) -> Result<
-        RowIter<'h, 'c, 'o, V, Executed>,
+        RowIter<'h, 'c, V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -794,7 +792,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         &'h mut self,
         statement: PreparedStatement<'c>,
     ) -> Result<
-        RowIter<'h, 'c, 'o, V, Prepared>,
+        RowIter<'h, 'c, V, Prepared>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -808,7 +806,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         statement: PreparedStatement<'c>,
         bind: F,
     ) -> Result<
-        RowIter<'h, 'c, 'o, V, Prepared>,
+        RowIter<'h, 'c, V, Prepared>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
