@@ -1125,7 +1125,7 @@ mod query {
             .expect("failed to run query");
 
         assert!(data.affected_rows().unwrap().is_none());
-        drop(data);
+        data.close().ok();
 
         let data = db
             .query::<ValueRow>("SELECT foo INTO #bar FROM (SELECT 1 as foo UNION SELECT 2 as foo) a")
@@ -1148,7 +1148,7 @@ mod query {
             .expect("failed to run query");
 
         assert!(data.affected_rows().unwrap().is_none());
-        drop(data);
+        data.close().ok();
 
         let statement = db
             .prepare("SELECT foo INTO #bar FROM (SELECT 1 as foo UNION SELECT 2 as foo) a")
