@@ -552,6 +552,7 @@ where
                                 }
                                 SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
                                     if utf_16_strings {
+                                        //TODO: map + transpose
                                         if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
                                             Some(Value::String(String::from_utf16(bytes)
                                                 .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?))
@@ -563,21 +564,7 @@ where
                                     }
                                 }
                                 SQL_TIMESTAMP => {
-                                    if let Some(timestamp) = cursor_get_data::<S, SqlTimestamp>(&mut cursor, index as u16)? {
-                                        trace!("{:?}", timestamp);
-                                        Some(Value::String(format!(
-                                            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-                                            timestamp.year,
-                                            timestamp.month,
-                                            timestamp.day,
-                                            timestamp.hour,
-                                            timestamp.minute,
-                                            timestamp.second,
-                                            timestamp.fraction / 1_000_000
-                                        )))
-                                    } else {
-                                        None
-                                    }
+                                    cursor_get_value::<S, SqlTimestamp>(&mut cursor, index as u16)?
                                 }
                                 SQL_DATE => {
                                     cursor_get_value::<S, SqlDate>(&mut cursor, index as u16)?
@@ -589,11 +576,7 @@ where
                                     cursor_get_value::<S, SqlSsTime2>(&mut cursor, index as u16)?
                                 }
                                 SQL_EXT_BIT => {
-                                    if let Some(byte) = cursor_get_data::<S, u8>(&mut cursor, index as u16)? {
-                                        Some(Value::Bit(if byte == 0 { false } else { true }))
-                                    } else {
-                                        None
-                                    }
+                                    cursor_get_data::<S, u8>(&mut cursor, index as u16)?.map(|byte| Value::Bit(if byte == 0 { false } else { true }))
                                 }
                                 _ => panic!(format!(
                                     "got unimplemented SQL data type: {:?}",
