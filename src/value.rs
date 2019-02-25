@@ -1,6 +1,6 @@
-use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
-use chrono::{Timelike, Datelike};
+use chrono::{Datelike, Timelike};
+use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 
 pub type ValueRow = Vec<Option<Value>>;
 
@@ -121,13 +121,15 @@ impl Value {
     }
 
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
-        self.as_timestamp().map(|value| NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
-            .and_hms_nano(
-                value.hour as u32,
-                value.minute as u32,
-                value.second as u32,
-                value.fraction,
-            ))
+        self.as_timestamp().map(|value| {
+            NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
+                .and_hms_nano(
+                    value.hour as u32,
+                    value.minute as u32,
+                    value.second as u32,
+                    value.fraction,
+                )
+        })
     }
 
     pub fn as_date(&self) -> Option<&SqlDate> {
@@ -138,7 +140,9 @@ impl Value {
     }
 
     pub fn to_naive_date(&self) -> Option<NaiveDate> {
-        self.as_date().map(|value| NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32))
+        self.as_date().map(|value| {
+            NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
+        })
     }
 
     pub fn as_time(&self) -> Option<&SqlSsTime2> {
@@ -149,12 +153,14 @@ impl Value {
     }
 
     pub fn to_naive_time(&self) -> Option<NaiveTime> {
-        self.as_time().map(|value| NaiveTime::from_hms_nano(
-            value.hour as u32,
-            value.minute as u32,
-            value.second as u32,
-            value.fraction,
-        ))
+        self.as_time().map(|value| {
+            NaiveTime::from_hms_nano(
+                value.hour as u32,
+                value.minute as u32,
+                value.second as u32,
+                value.fraction,
+            )
+        })
     }
 }
 

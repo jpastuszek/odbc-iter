@@ -3,8 +3,7 @@ use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
     Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, Executed,
-    NoResult, Prepared, ResultSetState, 
-    Statement, Version3,
+    NoResult, Prepared, ResultSetState, Statement, Version3,
 };
 use regex::Regex;
 use std::error::Error;
@@ -16,8 +15,8 @@ use std::string::FromUtf16Error;
 // Schema
 pub use odbc::ColumnDescriptor;
 // Allow for custom OdbcType impl for bining
-pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 pub use odbc::ffi;
+pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 
 pub mod schema_access;
 pub mod value;
@@ -184,7 +183,11 @@ impl<R> fmt::Display for DataAccessError<R> {
                 "failed to create String from UTF-16 column data while {}",
                 context
             ),
-            DataAccessError::UnexpectedNumberOfRows(context) => write!(f, "unexpected number of rows returned by query: {}", context),
+            DataAccessError::UnexpectedNumberOfRows(context) => write!(
+                f,
+                "unexpected number of rows returned by query: {}",
+                context
+            ),
         }
     }
 }
@@ -412,20 +415,28 @@ where
     }
 
     pub fn single(mut self) -> Result<V, DataAccessError<V::Error>> {
-        let value = self.next().ok_or(DataAccessError::UnexpectedNumberOfRows("expected single row but got no rows"))?;
+        let value = self.next().ok_or(DataAccessError::UnexpectedNumberOfRows(
+            "expected single row but got no rows",
+        ))?;
         if self.next().is_some() {
-            return Err(DataAccessError::UnexpectedNumberOfRows("expected single row but got more rows"));
+            return Err(DataAccessError::UnexpectedNumberOfRows(
+                "expected single row but got more rows",
+            ));
         }
         value
     }
 
     pub fn first(mut self) -> Result<V, DataAccessError<V::Error>> {
-        self.next().ok_or(DataAccessError::UnexpectedNumberOfRows("expected at least one row but got no rows"))?
+        self.next().ok_or(DataAccessError::UnexpectedNumberOfRows(
+            "expected at least one row but got no rows",
+        ))?
     }
 
     pub fn no_result(mut self) -> Result<(), DataAccessError<V::Error>> {
         if self.next().is_some() {
-            return Err(DataAccessError::UnexpectedNumberOfRows("exepcted no rows but got at least one"));
+            return Err(DataAccessError::UnexpectedNumberOfRows(
+                "exepcted no rows but got at least one",
+            ));
         }
         Ok(())
     }
@@ -1179,9 +1190,7 @@ mod query {
             Ok(values
                 .pop()
                 .map(|val| Foo {
-                    val: val
-                        .and_then(|v| v.to_i32())
-                        .expect("val to be an integer"),
+                    val: val.and_then(|v| v.to_i32()).expect("val to be an integer"),
                 })
                 .expect("value"))
         }

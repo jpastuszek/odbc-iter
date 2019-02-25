@@ -1,10 +1,10 @@
 //! Extra types that represent SQL data values but with extra from/to impls that implement `OdbcType` so they can be bound to query parameter
-use odbc::SqlTimestamp;
 use chrono::naive::{NaiveDate, NaiveDateTime};
-use chrono::{Timelike, Datelike};
+use chrono::{Datelike, Timelike};
+use odbc::SqlTimestamp;
 
-pub use odbc::OdbcType;
 pub use odbc::ffi;
+pub use odbc::OdbcType;
 
 #[derive(Debug)]
 pub struct UnixTimestamp(SqlTimestamp);
@@ -12,7 +12,12 @@ pub struct UnixTimestamp(SqlTimestamp);
 impl UnixTimestamp {
     pub fn as_naive_date_time(&self) -> NaiveDateTime {
         NaiveDate::from_ymd(self.0.year as i32, self.0.month as u32, self.0.day as u32)
-            .and_hms_nano(self.0.hour as u32, self.0.minute as u32, self.0.second as u32, self.0.fraction)
+            .and_hms_nano(
+                self.0.hour as u32,
+                self.0.minute as u32,
+                self.0.second as u32,
+                self.0.fraction,
+            )
     }
 
     pub fn into_inner(self) -> SqlTimestamp {
