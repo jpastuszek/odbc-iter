@@ -1,6 +1,8 @@
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 
+pub type ValueRow = Vec<Option<Value>>;
+
 #[derive(Debug)]
 pub enum Value {
     Bit(bool),
@@ -16,6 +18,10 @@ pub enum Value {
     Time(NaiveTime),
 }
 
+// TODO: allow Value to be used in binds - so all types stored need to impl OdbcType and be accessible as reference
+// * can't impl OdbcType as it has type level functions
+// * need to return references with as_ functions
+// * need to be able to return reference to SqlTimestamp and friends - so need to store data in that type
 impl Value {
     pub fn as_bit(&self) -> Option<bool> {
         match self {
@@ -212,5 +218,3 @@ impl From<SqlSsTime2> for Value {
         ))
     }
 }
-
-pub type ValueRow = Vec<Option<Value>>;
