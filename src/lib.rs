@@ -7,7 +7,6 @@ use odbc::{
     Statement, Version3,
 };
 use regex::Regex;
-// use std::cell::{Ref, RefCell};
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -21,6 +20,8 @@ pub use odbc::ColumnDescriptor;
 pub mod schema_access;
 pub mod value;
 pub use value::{Value, ValueRow};
+pub mod thread_local;
+pub use thread_local::connection_with as thread_local_connection_with;
 
 /// TODO
 /// * impl Debug on all structs
@@ -863,35 +864,6 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQu
         .map(|c| c.get(1).ok_or(SplitQueriesError))
         .map(|r| r.map(|m| m.as_str()))
 }
-
-//TODO: move to own module
-// // Note: odbc-sys stuff is not Sent and therefore we need to create objects per thread
-// thread_local! {
-//     // Leaking ODBC handle per thread should be OK...ish assuming a thread pool is used?
-//     static ODBC: &'static EnvironmentV3 = Box::leak(Box::new(Odbc::new().expect("Failed to initialize ODBC")));
-//     static DB: RefCell<Result<Odbc<'static>, OdbcError>> = RefCell::new(Err(OdbcError::NotConnectedError));
-// }
-
-// /// Access to thread local connection
-// /// Connection will be established only once if successful or any time this function is called again after it failed to connect previously
-// pub fn thread_local_connection_with<O>(
-//     connection_string: &str,
-//     f: impl Fn(Ref<Result<Odbc<'static>, OdbcError>>) -> O,
-// ) -> O {
-//     DB.with(|db| {
-//         {
-//             let mut db = db.borrow_mut();
-//             if db.is_err() {
-//                 let id = std::thread::current().id();
-//                 debug!("[{:?}] Connecting to database: {}", id, &connection_string);
-
-//                 *db = ODBC.with(|odbc| odbc.connect(odbc, &connection_string));
-//             }
-//         };
-
-//         f(db.borrow())
-//     })
-// }
 
 #[cfg(test)]
 mod query {
