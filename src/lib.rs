@@ -25,6 +25,7 @@ pub use value::{Value, ValueRow};
 pub mod thread_local;
 pub use thread_local::connection_with as thread_local_connection_with;
 mod odbc_type;
+pub use odbc_type::*;
 
 /// TODO
 /// * impl Debug on all structs
@@ -959,7 +960,7 @@ mod query {
 
     #[cfg(feature = "test-hive")]
     #[test]
-    fn test_hive_types_i32() {
+    fn test_hive_types_integer() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut hive = odbc
             .connect(hive_connection_string().as_str())
@@ -1038,7 +1039,7 @@ mod query {
 
     #[cfg(feature = "test-hive")]
     #[test]
-    fn test_hive_types_f32() {
+    fn test_hive_types_float() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut hive = odbc
             .connect(hive_connection_string().as_str())
@@ -1107,7 +1108,7 @@ mod query {
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Some(Value::Date(ref date)) => assert_eq!(&date.to_string(), "2018-08-24"));
+        assert_matches!(&data[0][0], Some(date @ Value::Date(_)) => assert_eq!(&date.to_naive_date().unwrap().to_string(), "2018-08-24"));
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -1125,7 +1126,7 @@ mod query {
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
 
-        assert_matches!(data[0][0], Some(Value::Time(ref time)) => assert_eq!(&time.to_string(), "10:22:33.765432100"));
+        assert_matches!(&data[0][0], Some(time @ Value::Time(_)) => assert_eq!(&time.to_naive_time().unwrap().to_string(), "10:22:33.765432100"));
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -1328,7 +1329,7 @@ mod query {
         let schema = statement.schema().unwrap();
         assert_eq!(schema.len(), 4);
         assert_eq!(schema[1].name, "foo");
-        assert_eq!(schema[1].data_type, SqlDataType::SQL_INTEGER);
+        assert_eq!(schema[1].data_type, ffi::SqlDataType::SQL_INTEGER);
     }
 
     #[cfg(feature = "test-hive")]
@@ -1565,7 +1566,7 @@ SELECT *;
     }
 
     #[test]
-    fn test_split_queries_escaped_f64quote() {
+    fn test_split_queries_escaped_doublequote() {
         let queries = split_queries(r#"SELECT "foo; b\"ar";SELECT "foo\"bar";"#)
             .collect::<Result<Vec<_>, _>>()
             .expect("failed to parse");

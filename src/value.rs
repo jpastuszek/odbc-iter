@@ -121,15 +121,13 @@ impl Value {
     }
 
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
-        self.as_timestamp().map(|value| NaiveDateTime::new(
-            NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32),
-            NaiveTime::from_hms_nano(
+        self.as_timestamp().map(|value| NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
+            .and_hms_nano(
                 value.hour as u32,
                 value.minute as u32,
                 value.second as u32,
                 value.fraction,
-            ),
-        ))
+            ))
     }
 
     pub fn as_date(&self) -> Option<&SqlDate> {
@@ -225,6 +223,13 @@ impl From<NaiveDateTime> for Value {
 impl From<SqlTimestamp> for Value {
     fn from(value: SqlTimestamp) -> Value {
         Value::Timestamp(value)
+    }
+}
+
+use crate::odbc_type::UnixTimestamp;
+impl From<UnixTimestamp> for Value {
+    fn from(value: UnixTimestamp) -> Value {
+        Value::Timestamp(value.into_inner())
     }
 }
 
