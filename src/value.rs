@@ -363,9 +363,9 @@ mod ser {
                 Value::Float(n) => serializer.serialize_f32(n),
                 Value::Double(n) => serializer.serialize_f64(n),
                 Value::String(ref s) => serializer.serialize_str(s),
-                value @ Value::Timestamp(_) | 
-                Value::Date(_) |
-                Value::Time(_) => serializer.serialize_str(&value.to_string())
+                ref value @ Value::Timestamp(_) | 
+                ref value @ Value::Date(_) |
+                ref value @ Value::Time(_) => serializer.serialize_str(&value.to_string())
             }
         }
     }
