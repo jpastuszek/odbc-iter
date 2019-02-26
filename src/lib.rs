@@ -885,7 +885,7 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQu
 }
 
 #[cfg(test)]
-mod query {
+mod tests {
     use super::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;

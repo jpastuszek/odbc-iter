@@ -268,8 +268,7 @@ impl From<NaiveTime> for Value {
 
 impl From<SqlTime> for Value {
     fn from(value: SqlTime) -> Value {
-        Value::Time(SqlSsTime2 {
-            hour: value.hour,
+        Value::Time(SqlSsTime2 { hour: value.hour,
             minute: value.minute,
             second: value.second,
             fraction: 0,
@@ -280,5 +279,84 @@ impl From<SqlTime> for Value {
 impl From<SqlSsTime2> for Value {
     fn from(value: SqlSsTime2) -> Value {
         Value::Time(value)
+    }
+}
+
+#[cfg(feature = "serde")]
+mod ser {
+    use serde::{self, Serialize};
+    use super::*;
+    //TODO: ValueRow (as Vec) and SchemaAccess (Map)
+
+    impl Serialize for Value {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: ::serde::Serializer,
+        {
+            match *self {
+                Value::Bit(b) => serializer.serialize_bool(b),
+                Value::Tinyint(n) => serializer.serialize_i8(n),
+                Value::Smallint(n) => serializer.serialize_i16(n),
+                Value::Integer(n) => serializer.serialize_i32(n),
+                Value::Bigint(n) => serializer.serialize_i64(n),
+                Value::Float(n) => serializer.serialize_f32(n),
+                Value::Double(n) => serializer.serialize_f64(n),
+                Value::String(ref s) => serializer.serialize_str(s),
+                Value::Timestamp(ref timestamp) => serializer.serialize_str(&format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                    timestamp.year,
+                    timestamp.month,
+                    timestamp.day,
+                    timestamp.hour,
+                    timestamp.minute,
+                    timestamp.second,
+                    timestamp.fraction / 1_000_000)),
+                Value::Date(ref date) => serializer.serialize_str(&format!(
+                    "{:04}-{:02}-{:02}",
+                    date.year, date.month, date.day)),
+                Value::Time(ref time) => serializer.serialize_str(&format!(
+                    "{:02}:{:02}:{:02}.{:03}",
+                    time.hour, time.minute, time.second, time.fraction / 1_000_000)),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn serialize_value_primitive() {
+            assert_eq!(&serde_json::to_string(&Value::Bit(true)).unwrap(), "true");
+            assert_eq!(&serde_json::to_string(&Value::Bit(false)).unwrap(), "false");
+
+            assert_eq!(&serde_json::to_string(&Value::Integer(-1)).unwrap(), "-1");
+            assert_eq!(&serde_json::to_string(&Value::Integer(22)).unwrap(), "22");
+
+            assert_eq!(&serde_json::to_string(&Value::Double(-1.1)).unwrap(), "-1.1");
+            assert_eq!(&serde_json::to_string(&Value::Double(33.22)).unwrap(), "33.22");
+
+            assert_eq!(&serde_json::to_string(&Value::String("foo".to_owned())).unwrap(), "\"foo\"");
+            assert_eq!(&serde_json::to_string(&Value::String("bar baz".to_owned())).unwrap(), "\"bar baz\"");
+        }
+
+        #[test]
+        fn serialize_value_timestamp() {
+            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 7, 8).and_hms_milli(9, 10, 11, 23))).unwrap(), "\"2016-07-08 09:10:11.023\"");
+            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 12, 8).and_hms_milli(19, 1, 1, 0))).unwrap(), "\"2016-12-08 19:01:01.000\"");
+        }
+
+        #[test]
+        fn serialize_value_date() {
+            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 7, 8))).unwrap(), "\"2016-07-08\"");
+            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 12, 8))).unwrap(), "\"2016-12-08\"");
+        }
+
+        #[test]
+        fn serialize_value_time() {
+            assert_eq!(&serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(9, 10, 11, 23))).unwrap(), "\"09:10:11.023\"");
+            assert_eq!(&serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(19, 1, 1, 0))).unwrap(), "\"19:01:01.000\"");
+        }
     }
 }
