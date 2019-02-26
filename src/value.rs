@@ -1,10 +1,11 @@
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
+use std::fmt;
 
 pub type ValueRow = Vec<Option<Value>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Bit(bool),
     Tinyint(i8),
@@ -282,6 +283,65 @@ impl From<SqlSsTime2> for Value {
     }
 }
 
+impl fmt::Display for Value {
+     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Bit(ref b) => fmt::Display::fmt(b, f),
+            Value::Tinyint(ref n) => fmt::Display::fmt(n, f),
+            Value::Smallint(ref n) => fmt::Display::fmt(n, f),
+            Value::Integer(ref n) => fmt::Display::fmt(n, f),
+            Value::Bigint(ref n) => fmt::Display::fmt(n, f),
+            Value::Float(ref n) => fmt::Display::fmt(n, f),
+            Value::Double(ref n) => fmt::Display::fmt(n, f),
+            Value::String(ref s) => fmt::Display::fmt(s, f),
+            Value::Timestamp(ref timestamp) => write!(f,
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                timestamp.year,
+                timestamp.month,
+                timestamp.day,
+                timestamp.hour,
+                timestamp.minute,
+                timestamp.second,
+                timestamp.fraction / 1_000_000),
+            Value::Date(ref date) => write!(f, 
+                "{:04}-{:02}-{:02}",
+                date.year, date.month, date.day),
+            Value::Time(ref time) => write!(f, 
+                "{:02}:{:02}:{:02}.{:03}",
+                time.hour, time.minute, time.second, time.fraction / 1_000_000),
+        }
+     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NullableValue(Option<Value>);
+
+impl NullableValue {
+    pub fn into_option(self) -> Option<Value> {
+        self.0
+    }
+}
+
+impl fmt::Display for NullableValue {
+     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            Some(ref v) => fmt::Display::fmt(v, f),
+            None => write!(f, "NULL"),
+        }
+     }
+}
+
+pub trait IntoNullable {
+    fn into_nullable(self) -> NullableValue;
+}
+
+impl IntoNullable for Option<Value> {
+    /// Convert to NullableValue that implements Display for None variant
+    fn into_nullable(self) -> NullableValue {
+        NullableValue(self)
+    }
+}
+
 #[cfg(feature = "serde")]
 mod ser {
     use serde::{self, Serialize};
@@ -303,21 +363,9 @@ mod ser {
                 Value::Float(n) => serializer.serialize_f32(n),
                 Value::Double(n) => serializer.serialize_f64(n),
                 Value::String(ref s) => serializer.serialize_str(s),
-                Value::Timestamp(ref timestamp) => serializer.serialize_str(&format!(
-                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-                    timestamp.year,
-                    timestamp.month,
-                    timestamp.day,
-                    timestamp.hour,
-                    timestamp.minute,
-                    timestamp.second,
-                    timestamp.fraction / 1_000_000)),
-                Value::Date(ref date) => serializer.serialize_str(&format!(
-                    "{:04}-{:02}-{:02}",
-                    date.year, date.month, date.day)),
-                Value::Time(ref time) => serializer.serialize_str(&format!(
-                    "{:02}:{:02}:{:02}.{:03}",
-                    time.hour, time.minute, time.second, time.fraction / 1_000_000)),
+                value @ Value::Timestamp(_) | 
+                Value::Date(_) |
+                Value::Time(_) => serializer.serialize_str(&value.to_string())
             }
         }
     }
