@@ -302,8 +302,7 @@ impl TryFromRow for ValueRow {
 }
 
 /// Iterate rows converting them to given value type
-///
-pub struct RowIter<'h, 'c, V, S>
+pub struct Rows<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -315,7 +314,7 @@ where
     phantom: PhantomData<&'h V>,
 }
 
-impl<'h, 'c, V, S> Drop for RowIter<'h, 'c, V, S>
+impl<'h, 'c, V, S> Drop for Rows<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -331,7 +330,7 @@ enum ExecutedStatement<'c, S> {
     NoResult(odbc::Statement<'c, 'c, S, odbc::NoResult>),
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> RowIter<'h, 'c, V, S>
+impl<'h, 'c: 'h, 'o: 'c, V, S> Rows<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -340,7 +339,7 @@ where
         result: ResultSetState<'c, '_, S>,
         utf_16_strings: bool,
     ) -> Result<
-        RowIter<'h, 'c, V, S>,
+        Rows<'h, 'c, V, S>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     > {
         let (odbc_schema, columns, statement) = match result {
@@ -396,7 +395,7 @@ where
         let schema =
             V::Schema::try_from_schema(&odbc_schema).map_err(QueryError::FromSchemaError)?;
 
-        Ok(RowIter {
+        Ok(Rows {
             statement: Some(statement),
             odbc_schema,
             schema,
@@ -442,7 +441,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> RowIter<'h, 'c, V, Prepared>
+impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Prepared>
 where
     V: TryFromRow,
 {
@@ -470,7 +469,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> RowIter<'h, 'c, V, Executed>
+impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Executed>
 where
     V: TryFromRow,
 {
@@ -500,7 +499,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for RowIter<'h, 'c, V, S>
+impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for Rows<'h, 'c, V, S>
 where
     V: TryFromRow,
 {
@@ -736,7 +735,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         table: Option<&'i str>,
         table_type: Option<&'i str>,
     ) -> Result<
-        RowIter<'h, 'c, V, Executed>,
+        Rows<'h, 'c, V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -755,7 +754,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
                 .wrap_error_while("executing direct statement")?,
         );
 
-        RowIter::from_result(self, result_set, self.0.utf_16_strings)
+        Rows::from_result(self, result_set, self.0.utf_16_strings)
     }
 
     pub fn prepare(&'h mut self, query: &str) -> Result<PreparedStatement<'c>, OdbcError> {
@@ -773,7 +772,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         &'h mut self,
         query: &str,
     ) -> Result<
-        RowIter<'h, 'c, V, Executed>,
+        Rows<'h, 'c, V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -787,7 +786,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         query: &str,
         bind: F,
     ) -> Result<
-        RowIter<'h, 'c, V, Executed>,
+        Rows<'h, 'c, V, Executed>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -798,7 +797,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
 
         let statement = bind(self.statement()?.into())?.into_inner();
 
-        RowIter::from_result(
+        Rows::from_result(
             self,
             statement
                 .exec_direct(query)
@@ -811,7 +810,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         &'h mut self,
         statement: PreparedStatement<'c>,
     ) -> Result<
-        RowIter<'h, 'c, V, Prepared>,
+        Rows<'h, 'c, V, Prepared>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -825,7 +824,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         statement: PreparedStatement<'c>,
         bind: F,
     ) -> Result<
-        RowIter<'h, 'c, V, Prepared>,
+        Rows<'h, 'c, V, Prepared>,
         QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
     >
     where
@@ -834,7 +833,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     {
         let statement = bind(statement.0.into())?.into_inner();
 
-        RowIter::from_result(
+        Rows::from_result(
             self,
             statement
                 .execute()
