@@ -5,7 +5,7 @@ use std::cell::RefCell;
 thread_local! {
     // Leaking ODBC handle per thread should be OK...ish assuming a thread pool is used?
     static ODBC: &'static Odbc = Box::leak(Box::new(Odbc::new().expect("Failed to initialize ODBC")));
-    static DB: RefCell<Option<Result<Connection<'static>, OdbcError>>> = RefCell::new(None);
+    static DB: RefCell<Option<Connection<'static>>> = RefCell::new(None);
 }
 
 /// Access to thread local connection
@@ -21,21 +21,13 @@ pub fn connection_with<O>(
                 let id = std::thread::current().id();
                 debug!("[{:?}] Connecting to database: {}", id, &connection_string);
 
-                *db = Some(ODBC.with(|odbc| odbc.connect(&connection_string)));
+                match ODBC.with(|odbc| odbc.connect(&connection_string)) {
+                    Ok(connection) => *db = Some(connection),
+                    Err(err) => return f(Err(err)),
+                }
             }
         };
 
-        let (out, connection) = match db.borrow_mut().take().unwrap() {
-            Ok(mut connection) => {
-                let out = f(Ok(&mut connection));
-                (out, Some(Ok(connection)))
-            },
-            Err(err) => {
-                (f(Err(err)), None)
-            }
-        };
-
-        *db.borrow_mut() = connection;
-        out
+        f(Ok(db.borrow_mut().as_mut().unwrap()))
     })
 }
