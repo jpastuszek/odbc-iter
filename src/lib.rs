@@ -35,6 +35,10 @@ pub use odbc_type::*;
 /// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepare + execute;
 ///    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
 /// ** sc.clear() - try close the statement and clear the cache
+/// * MultiConnection - special handle that does not require mutable reference to query but will automatically crate and manage connections if one is already busy
+/// ** Connections behind RefCell, get Handle for each query
+/// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
+/// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
 /// * Replace unit errors with never type when stable
 
 // https://github.com/rust-lang/rust/issues/49431
