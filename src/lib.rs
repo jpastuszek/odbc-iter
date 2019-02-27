@@ -20,7 +20,7 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 
 pub mod schema_access;
 pub mod value;
-pub use value::{Value, ValueRow, NullableValue, IntoNullable};
+pub use value::{Value, ValueRow, NullableValue, AsNullable};
 pub mod thread_local;
 pub use thread_local::connection_with as thread_local_connection_with;
 mod odbc_type;

@@ -314,15 +314,9 @@ impl fmt::Display for Value {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NullableValue(Option<Value>);
+pub struct NullableValue<'i>(&'i Option<Value>);
 
-impl NullableValue {
-    pub fn into_option(self) -> Option<Value> {
-        self.0
-    }
-}
-
-impl fmt::Display for NullableValue {
+impl<'i> fmt::Display for NullableValue<'i> {
      fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
             Some(ref v) => fmt::Display::fmt(v, f),
@@ -331,14 +325,14 @@ impl fmt::Display for NullableValue {
      }
 }
 
-pub trait IntoNullable {
-    fn into_nullable(self) -> NullableValue;
+pub trait AsNullable {
+    fn as_nullable(&self) -> NullableValue;
 }
 
-impl IntoNullable for Option<Value> {
-    /// Convert to NullableValue that implements Display for None variant
-    fn into_nullable(self) -> NullableValue {
-        NullableValue(self)
+impl AsNullable for Option<Value> {
+    /// Convert to NullableValue that implements Display for None variant as "NULL"
+    fn as_nullable(&self) -> NullableValue {
+        NullableValue(&self)
     }
 }
 
