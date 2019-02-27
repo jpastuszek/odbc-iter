@@ -12,7 +12,7 @@ thread_local! {
 /// Connection will be established only once if successful or any time this function is called again after it failed to connect previously
 pub fn connection_with<O>(
     connection_string: &str,
-    f: impl Fn(&mut Result<Connection<'static>, OdbcError>) -> O,
+    f: impl Fn(Result<&mut Connection<'static>, OdbcError>) -> O,
 ) -> O {
     DB.with(|db| {
         {
@@ -25,6 +25,17 @@ pub fn connection_with<O>(
             }
         };
 
-        f(db.borrow_mut().as_mut().unwrap())
+        let (out, connection) = match db.borrow_mut().take().unwrap() {
+            Ok(mut connection) => {
+                let out = f(Ok(&mut connection));
+                (out, Some(Ok(connection)))
+            },
+            Err(err) => {
+                (f(Err(err)), None)
+            }
+        };
+
+        *db.borrow_mut() = connection;
+        out
     })
 }
