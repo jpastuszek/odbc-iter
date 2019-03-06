@@ -18,6 +18,8 @@ pub use odbc::ColumnDescriptor;
 pub use odbc::ffi;
 pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 
+mod convert;
+pub use convert::*;
 pub mod schema_access;
 pub mod value;
 pub use value::{Value, ValueRow, NullableValue, AsNullable};
@@ -27,6 +29,7 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
+/// * impl size_hint for Rows
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
@@ -256,54 +259,6 @@ impl From<DiagnosticRecord> for BindError {
 
 pub type EnvironmentV3 = Environment<Version3>;
 pub type Schema = Vec<ColumnDescriptor>;
-
-//TODO: use ! type when it is stable
-#[derive(Debug)]
-pub struct NoError;
-
-impl fmt::Display for NoError {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
-        panic!("unexpected error")
-    }
-}
-
-impl Error for NoError {}
-
-/// Convert from ODBC schema to other type of schema
-pub trait TryFromSchema: Sized {
-    type Error: Error + 'static;
-    fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error>;
-}
-
-impl TryFromSchema for () {
-    type Error = NoError;
-    fn try_from_schema(_schema: &Schema) -> Result<Self, Self::Error> {
-        Ok(())
-    }
-}
-
-impl TryFromSchema for Schema {
-    type Error = NoError;
-    fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error> {
-        Ok(schema.clone())
-    }
-}
-
-/// Convert from ODBC row to other type of value
-pub trait TryFromRow: Sized {
-    /// Type of schema for the target value
-    type Schema: TryFromSchema;
-    type Error: Error + 'static;
-    fn try_from_row(values: ValueRow, schema: &Self::Schema) -> Result<Self, Self::Error>;
-}
-
-impl TryFromRow for ValueRow {
-    type Schema = Schema;
-    type Error = NoError;
-    fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-        Ok(values)
-    }
-}
 
 /// Iterate rows converting them to given value type
 pub struct Rows<'h, 'c, V, S>
