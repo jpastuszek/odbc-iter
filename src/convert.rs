@@ -83,6 +83,13 @@ impl TryFromValue for i8 {
     }
 }
 
+impl TryFromValue for Option<i8> {
+    type Error = TryFromValueError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        value.map(|value| value.to_i8().ok_or_else(|| TryFromValueError::UnexpectedType { expected: "i8", got: value.description() })).transpose()
+    }
+}
+
 /// Convert from ODBC row to other type of value
 pub trait TryFromRow: Sized {
     /// Type of schema for the target value
@@ -258,5 +265,23 @@ mod tests {
             .expect("fetch data");
 
         assert_eq!(value, 42);
+
+        let value: Option<i8> = db
+            .handle()
+            .query("SELECT CAST(42 AS TINYINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap(), 42);
+
+        let value: Option<i8> = db
+            .handle()
+            .query("SELECT CAST(NULL AS TINYINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
     }
 }
