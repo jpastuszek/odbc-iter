@@ -1136,42 +1136,6 @@ mod tests {
         // assert_eq!(data.affected_rows().unwrap().unwrap(), 2);
     }
 
-    #[derive(Debug)]
-    struct Foo {
-        val: i32,
-    }
-
-    impl TryFromRow for Foo {
-        type Schema = Schema;
-        type Error = NoError;
-        fn try_from_row(mut values: ValueRow, _schema: &Schema) -> Result<Self, NoError> {
-            Ok(values
-                .pop()
-                .map(|val| Foo {
-                    val: val.and_then(|v| v.to_i32()).expect("val to be an integer"),
-                })
-                .expect("value"))
-        }
-    }
-
-    #[cfg(feature = "test-hive")]
-    #[test]
-    fn test_hive_custom_type() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
-
-        let foo = hive
-            .handle()
-            .query::<Foo>("SELECT 42 AS val;")
-            .expect("failed to run query")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("fetch data");
-
-        assert_eq!(foo[0].val, 42);
-    }
-
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_query_with_parameters() {
@@ -1182,14 +1146,14 @@ mod tests {
 
         let val = 42;
 
-        let foo: Vec<Foo> = db
+        let value: Value = db
             .handle()
             .query_with_parameters("SELECT ? AS val;", |q| q.bind(&val))
             .expect("failed to run query")
-            .collect::<Result<_, _>>()
+            .single()
             .expect("fetch data");
 
-        assert_eq!(foo[0].val, 42);
+        assert_eq!(value.to_i32().unwrap(), 42);
     }
 
     #[cfg(feature = "test-sql-server")]
