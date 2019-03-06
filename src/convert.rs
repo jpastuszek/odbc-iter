@@ -35,6 +35,41 @@ impl TryFromSchema for Schema {
     }
 }
 
+/// Convert single column value to given type
+pub trait TryFromValue: Sized {
+    type Error: Error + 'static;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
+}
+
+impl TryFromValue for Option<Value> {
+    type Error = NoError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        Ok(value)
+    }
+}
+
+#[derive(Debug)]
+pub enum TryFromValueError {
+    UnexpectedNullValue,
+}
+
+impl fmt::Display for TryFromValueError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TryFromValueError::UnexpectedNullValue => write!(f, "expecting value but got NULL"),
+        }
+    }
+}
+
+impl Error for TryFromValueError {}
+
+impl TryFromValue for Value {
+    type Error = TryFromValueError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)
+    }
+}
+
 /// Convert from ODBC row to other type of value
 pub trait TryFromRow: Sized {
     /// Type of schema for the target value
@@ -52,44 +87,40 @@ impl TryFromRow for ValueRow {
 }
 
 #[derive(Debug)]
-pub enum TryFromRowError {
+pub enum TryFromRowError<V> {
     UnexpectedNumberOfColumns { 
         have: u16,
         expected: u16,
     },
-    UnexpectedNullValue,
+    ValueConversionError(V),
 }
 
-impl fmt::Display for TryFromRowError {
+impl<V> fmt::Display for TryFromRowError<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TryFromRowError::UnexpectedNumberOfColumns { have, expected } => write!(f, "unexpected number of columns: have {}, expected {}", have, expected),
-            TryFromRowError::UnexpectedNullValue => write!(f, "expecting value but got NULL"),
+            TryFromRowError::ValueConversionError(_) => write!(f, "failed to convert column value to target type"),
         }
     }
 }
 
-impl Error for TryFromRowError {}
-
-impl TryFromRow for Option<Value> {
-    type Schema = Schema;
-    type Error = TryFromRowError;
-    fn try_from_row(mut values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-        if values.len() != 1 {
-            return Err(TryFromRowError::UnexpectedNumberOfColumns { have: values.len() as u16, expected: 1 })
+impl<V: Error + 'static> Error for TryFromRowError<V> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            TryFromRowError::UnexpectedNumberOfColumns { .. } => None,
+            TryFromRowError::ValueConversionError(err) => Some(err),
         }
-        Ok(values.pop().unwrap())
     }
 }
 
-impl TryFromRow for Value {
+impl<T> TryFromRow for T where T: TryFromValue {
     type Schema = Schema;
-    type Error = TryFromRowError;
+    type Error = TryFromRowError<<T as TryFromValue>::Error>;
     fn try_from_row(mut values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         if values.len() != 1 {
             return Err(TryFromRowError::UnexpectedNumberOfColumns { have: values.len() as u16, expected: 1 })
         }
-        values.pop().unwrap().ok_or_else(|| TryFromRowError::UnexpectedNullValue)
+        T::try_from_value(values.pop().unwrap()).map_err(|err| TryFromRowError::ValueConversionError(err))
     }
 }
 
