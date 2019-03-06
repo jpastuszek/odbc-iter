@@ -75,20 +75,32 @@ impl TryFromValue for Value {
     }
 }
 
-impl TryFromValue for i8 {
-    type Error = TryFromValueError;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
-        value.to_i8().ok_or_else(|| TryFromValueError::UnexpectedType { expected: "i8", got: value.description() })
+macro_rules! try_from_value_primitive {
+    ($t:ty, $f:ident) => { 
+        impl TryFromValue for $t {
+            type Error = TryFromValueError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
+                value.$f().ok_or_else(|| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = TryFromValueError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| value.$f().ok_or_else(|| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
+            }
+        }
     }
 }
 
-impl TryFromValue for Option<i8> {
-    type Error = TryFromValueError;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        value.map(|value| value.to_i8().ok_or_else(|| TryFromValueError::UnexpectedType { expected: "i8", got: value.description() })).transpose()
-    }
-}
+try_from_value_primitive![bool, to_bool];
+try_from_value_primitive![i8, to_i8];
+try_from_value_primitive![i16, to_i16];
+try_from_value_primitive![i32, to_i32];
+try_from_value_primitive![i64, to_i64];
+try_from_value_primitive![f32, to_f32];
+try_from_value_primitive![f64, to_f64];
 
 /// Convert from ODBC row to other type of value
 pub trait TryFromRow: Sized {
@@ -278,6 +290,33 @@ mod tests {
         let value: Option<i8> = db
             .handle()
             .query("SELECT CAST(NULL AS TINYINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+
+        let value: i64 = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value, 42);
+
+        let value: Option<i64> = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap(), 42);
+
+        let value: Option<i64> = db
+            .handle()
+            .query("SELECT CAST(NULL AS BIGINT)")
             .expect("failed to run query")
             .single()
             .expect("fetch data");
