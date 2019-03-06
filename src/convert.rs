@@ -51,12 +51,17 @@ impl TryFromValue for Option<Value> {
 #[derive(Debug)]
 pub enum TryFromValueError {
     UnexpectedNullValue,
+    UnexpectedType { 
+        expected: &'static str, 
+        got: &'static str 
+    },
 }
 
 impl fmt::Display for TryFromValueError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TryFromValueError::UnexpectedNullValue => write!(f, "expecting value but got NULL"),
+            TryFromValueError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
         }
     }
 }
@@ -67,6 +72,14 @@ impl TryFromValue for Value {
     type Error = TryFromValueError;
     fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
         value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)
+    }
+}
+
+impl TryFromValue for i8 {
+    type Error = TryFromValueError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
+        value.to_i8().ok_or_else(|| TryFromValueError::UnexpectedType { expected: "i8", got: value.description() })
     }
 }
 
@@ -89,8 +102,8 @@ impl TryFromRow for ValueRow {
 #[derive(Debug)]
 pub enum TryFromRowError<V> {
     UnexpectedNumberOfColumns { 
-        have: u16,
         expected: u16,
+        got: u16,
     },
     ValueConversionError(V),
 }
@@ -98,7 +111,7 @@ pub enum TryFromRowError<V> {
 impl<V> fmt::Display for TryFromRowError<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TryFromRowError::UnexpectedNumberOfColumns { have, expected } => write!(f, "unexpected number of columns: have {}, expected {}", have, expected),
+            TryFromRowError::UnexpectedNumberOfColumns { expected, got } => write!(f, "unexpected number of columns: expected {} but got {}", expected, got),
             TryFromRowError::ValueConversionError(_) => write!(f, "failed to convert column value to target type"),
         }
     }
@@ -118,7 +131,7 @@ impl<T> TryFromRow for T where T: TryFromValue {
     type Error = TryFromRowError<<T as TryFromValue>::Error>;
     fn try_from_row(mut values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         if values.len() != 1 {
-            return Err(TryFromRowError::UnexpectedNumberOfColumns { have: values.len() as u16, expected: 1 })
+            return Err(TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() as u16 })
         }
         T::try_from_value(values.pop().unwrap()).map_err(|err| TryFromRowError::ValueConversionError(err))
     }
@@ -228,5 +241,22 @@ mod tests {
         assert_eq!(value.len(), 2);
         assert_eq!(value[0].as_ref().unwrap().to_i64().unwrap(), 42);
         assert_eq!(value[1].as_ref().unwrap().to_i32().unwrap(), 22);
+    }
+
+    #[test]
+    fn test_single_primitive() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut db = odbc
+            .connect(crate::tests::monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let value: i8 = db
+            .handle()
+            .query("SELECT CAST(42 AS TINYINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value, 42);
     }
 }

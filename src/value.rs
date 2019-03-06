@@ -163,6 +163,23 @@ impl Value {
             )
         })
     }
+
+    /// Provide string describing type of this value
+    pub fn description(&self) -> &'static str {
+        match self {
+            Value::Bit(_) => "BIT",
+            Value::Tinyint(_) => "TINYINT",
+            Value::Smallint(_) => "SMALLINT",
+            Value::Integer(_) => "INTEGER",
+            Value::Bigint(_) => "BIGINT",
+            Value::Float(_) => "FLOAT",
+            Value::Double(_) => "DOUBLE",
+            Value::String(_) => "STRING",
+            Value::Timestamp(_) => "TIMESTAMP",
+            Value::Date(_) => "DATE",
+            Value::Time(_) => "TIME",
+        }
+    }
 }
 
 impl From<bool> for Value {
