@@ -102,6 +102,21 @@ try_from_value_primitive![i64, to_i64];
 try_from_value_primitive![f32, to_f32];
 try_from_value_primitive![f64, to_f64];
 
+impl TryFromValue for String {
+    type Error = TryFromValueError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
+        value.into_string().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
+    }
+}
+
+impl TryFromValue for Option<String> {
+    type Error = TryFromValueError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        value.map(|value| value.into_string().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
+    }
+}
+
 /// Convert from ODBC row to other type of value
 pub trait TryFromRow: Sized {
     /// Type of schema for the target value
@@ -269,27 +284,27 @@ mod tests {
             .connect(crate::tests::monetdb_connection_string().as_str())
             .expect("connect to MonetDB");
 
-        let value: i8 = db
+        let value: bool = db
             .handle()
-            .query("SELECT CAST(42 AS TINYINT)")
+            .query("SELECT true")
             .expect("failed to run query")
             .single()
             .expect("fetch data");
 
-        assert_eq!(value, 42);
+        assert_eq!(value, true);
 
-        let value: Option<i8> = db
+        let value: Option<bool> = db
             .handle()
-            .query("SELECT CAST(42 AS TINYINT)")
+            .query("SELECT true")
             .expect("failed to run query")
             .single()
             .expect("fetch data");
 
-        assert_eq!(value.unwrap(), 42);
+        assert_eq!(value.unwrap(), true);
 
-        let value: Option<i8> = db
+        let value: Option<bool> = db
             .handle()
-            .query("SELECT CAST(NULL AS TINYINT)")
+            .query("SELECT CAST(NULL AS BOOL)")
             .expect("failed to run query")
             .single()
             .expect("fetch data");
@@ -317,6 +332,41 @@ mod tests {
         let value: Option<i64> = db
             .handle()
             .query("SELECT CAST(NULL AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_single_string() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut db = odbc
+            .connect(crate::tests::monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let value: String = db
+            .handle()
+            .query("SELECT 'foo'")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value, "foo");
+
+        let value: Option<String> = db
+            .handle()
+            .query("SELECT 'foo'")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.unwrap(), "foo");
+
+        let value: Option<String> = db
+            .handle()
+            .query("SELECT CAST(NULL AS STRING)")
             .expect("failed to run query")
             .single()
             .expect("fetch data");
