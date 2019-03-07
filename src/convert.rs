@@ -184,6 +184,165 @@ impl<T> TryFromRow for T where T: TryFromValue {
     }
 }
 
+#[derive(Debug)]
+pub enum TryFromRowTupleError {
+    UnexpectedNumberOfColumns { 
+        expected: u16,
+        tuple: &'static str,
+    },
+    ValueConversionError(Box<dyn Error + 'static>),
+}
+
+impl fmt::Display for TryFromRowTupleError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TryFromRowTupleError::UnexpectedNumberOfColumns { expected, tuple } => write!(f, "failed to convert row with {} columns to tuple {}", expected, tuple),
+            TryFromRowTupleError::ValueConversionError(_) => write!(f, "failed to convert column value to target type"),
+        }
+    }
+}
+
+impl Error for TryFromRowTupleError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            TryFromRowTupleError::UnexpectedNumberOfColumns { .. } => None,
+            TryFromRowTupleError::ValueConversionError(err) => Some(err.as_ref()),
+        }
+    }
+}
+
+macro_rules! count {
+    () => (0usize);
+    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+}
+
+macro_rules! try_from_tuple {
+    ($(
+        $Tuple:ident {
+            $(($idx:tt) -> $T:ident)+
+        }
+    )+) => {
+        $(
+            impl<$($T:TryFromValue),+> TryFromRow for ($($T,)+) {
+                type Schema = Schema;
+                type Error = TryFromRowTupleError;
+                fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
+                    if values.len() != count!($($T)+) {
+                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: 1, tuple: stringify![($($T,)+)] })
+                    }
+                    let mut values = values.into_iter();
+                    Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
+                }
+            }
+        )+
+    }
+}
+
+try_from_tuple! {
+    Tuple1 {
+        (0) -> A
+    }
+    Tuple2 {
+        (0) -> A
+        (1) -> B
+    }
+    Tuple3 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+    }
+    Tuple4 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+    }
+    Tuple5 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+    }
+    Tuple6 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+    }
+    Tuple7 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+    }
+    Tuple8 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+    }
+    Tuple9 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+    }
+    Tuple10 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+    }
+    Tuple11 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+    }
+    Tuple12 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+        (11) -> L
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "test-monetdb")]
 mod tests {
@@ -426,5 +585,46 @@ mod tests {
             .expect("fetch data");
 
         assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_tuple_value() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut db = odbc
+            .connect(crate::tests::monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let value: (String, i64, bool) = db
+            .handle()
+            .query("SELECT 'foo', CAST(42 AS BIGINT), true")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.0, "foo");
+        assert_eq!(value.1, 42);
+        assert_eq!(value.2, true);
+
+        let value: (Option<String>, i64, Option<bool>) = db
+            .handle()
+            .query("SELECT 'foo', CAST(42 AS BIGINT), true")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.0.unwrap(), "foo");
+        assert_eq!(value.1, 42);
+        assert_eq!(value.2.unwrap(), true);
+
+        let value: (Option<String>, i64, Option<bool>) = db
+            .handle()
+            .query("SELECT CAST(NULL AS STRING), CAST(42 AS BIGINT), CAST(NULL AS BOOL)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(&value.0.is_none());
+        assert_eq!(value.1, 42);
+        assert!(value.2.is_none());
     }
 }
