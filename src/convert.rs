@@ -52,7 +52,7 @@ impl TryFromValue for Option<Value> {
 
 #[derive(Debug)]
 pub enum TryFromValueError {
-    UnexpectedNullValue,
+    UnexpectedNullValue(&'static str),
     UnexpectedType { 
         expected: &'static str, 
         got: &'static str 
@@ -62,7 +62,7 @@ pub enum TryFromValueError {
 impl fmt::Display for TryFromValueError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TryFromValueError::UnexpectedNullValue => write!(f, "expecting value but got NULL"),
+            TryFromValueError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
             TryFromValueError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
         }
     }
@@ -73,7 +73,7 @@ impl Error for TryFromValueError {}
 impl TryFromValue for Value {
     type Error = TryFromValueError;
     fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)
+        value.ok_or_else(|| TryFromValueError::UnexpectedNullValue("Value"))
     }
 }
 
@@ -82,7 +82,7 @@ macro_rules! try_from_value_copy {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
+                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue(stringify!($t)))?;
                 value.$f().ok_or_else(|| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
             }
         }
@@ -101,7 +101,7 @@ macro_rules! try_from_value_owned {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
+                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue(stringify!($t)))?;
                 value.$f().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
             }
         }
