@@ -2,6 +2,8 @@ use std::fmt;
 use std::error::Error;
 use crate::value::{ValueRow, Value};
 use crate::Schema;
+use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
+use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 
 //TODO: use ! type when it is stable
 #[derive(Debug)]
@@ -75,7 +77,7 @@ impl TryFromValue for Value {
     }
 }
 
-macro_rules! try_from_value_primitive {
+macro_rules! try_from_value_copy {
     ($t:ty, $f:ident) => { 
         impl TryFromValue for $t {
             type Error = TryFromValueError;
@@ -94,28 +96,39 @@ macro_rules! try_from_value_primitive {
     }
 }
 
-try_from_value_primitive![bool, to_bool];
-try_from_value_primitive![i8, to_i8];
-try_from_value_primitive![i16, to_i16];
-try_from_value_primitive![i32, to_i32];
-try_from_value_primitive![i64, to_i64];
-try_from_value_primitive![f32, to_f32];
-try_from_value_primitive![f64, to_f64];
+macro_rules! try_from_value_owned {
+    ($t:ty, $f:ident) => { 
+        impl TryFromValue for $t {
+            type Error = TryFromValueError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
+                value.$f().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
 
-impl TryFromValue for String {
-    type Error = TryFromValueError;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue)?;
-        value.into_string().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
+        impl TryFromValue for Option<$t> {
+            type Error = TryFromValueError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| value.$f().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
+            }
+        }
     }
 }
 
-impl TryFromValue for Option<String> {
-    type Error = TryFromValueError;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        value.map(|value| value.into_string().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
-    }
-}
+try_from_value_copy![bool, to_bool];
+try_from_value_copy![i8, to_i8];
+try_from_value_copy![i16, to_i16];
+try_from_value_copy![i32, to_i32];
+try_from_value_copy![i64, to_i64];
+try_from_value_copy![f32, to_f32];
+try_from_value_copy![f64, to_f64];
+try_from_value_owned![String, into_string];
+try_from_value_owned![SqlTimestamp, into_timestamp];
+try_from_value_copy![NaiveDateTime, to_naive_date_time];
+try_from_value_owned![SqlDate, into_date];
+try_from_value_copy![NaiveDate, to_naive_date];
+try_from_value_owned![SqlSsTime2, into_time];
+try_from_value_copy![NaiveTime, to_naive_time];
 
 /// Convert from ODBC row to other type of value
 pub trait TryFromRow: Sized {
@@ -278,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_primitive() {
+    fn test_single_copy() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
             .connect(crate::tests::monetdb_connection_string().as_str())
@@ -367,6 +380,47 @@ mod tests {
         let value: Option<String> = db
             .handle()
             .query("SELECT CAST(NULL AS STRING)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_single_date() {
+        use chrono::Datelike;
+
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut db = odbc
+            .connect(crate::tests::monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let value: NaiveDate = db
+            .handle()
+            .query("SELECT CAST('2019-04-02' AS DATE)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.year(), 2019);
+        assert_eq!(value.month(), 4);
+        assert_eq!(value.day(), 2);
+
+        let value: Option<NaiveDate> = db
+            .handle()
+            .query("SELECT CAST('2019-04-02' AS DATE)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap().year(), 2019);
+        assert_eq!(value.unwrap().month(), 4);
+        assert_eq!(value.unwrap().day(), 2);
+
+        let value: Option<NaiveDate> = db
+            .handle()
+            .query("SELECT CAST(NULL AS DATE)")
             .expect("failed to run query")
             .single()
             .expect("fetch data");

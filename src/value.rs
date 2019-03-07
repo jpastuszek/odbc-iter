@@ -121,6 +121,13 @@ impl Value {
         }
     }
 
+    pub fn into_timestamp(self) -> Result<SqlTimestamp, Value> {
+        match self {
+            Value::Timestamp(value) => Ok(value),
+            _ => Err(self),
+        }
+    }
+
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
         self.as_timestamp().map(|value| {
             NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
@@ -140,6 +147,13 @@ impl Value {
         }
     }
 
+    pub fn into_date(self) -> Result<SqlDate, Value> {
+        match self {
+            Value::Date(value) => Ok(value),
+            _ => Err(self),
+        }
+    }
+
     pub fn to_naive_date(&self) -> Option<NaiveDate> {
         self.as_date().map(|value| {
             NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
@@ -150,6 +164,13 @@ impl Value {
         match self {
             Value::Time(value) => Some(value),
             _ => None,
+        }
+    }
+
+    pub fn into_time(self) -> Result<SqlSsTime2, Value> {
+        match self {
+            Value::Time(value) => Ok(value),
+            _ => Err(self),
         }
     }
 
