@@ -989,6 +989,44 @@ mod tests {
         assert_matches!(data[0][3], Some(Value::String(ref string)) => assert_eq!(string, "quix"));
     }
 
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_types_string_empty() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut hive = odbc
+            .connect(sql_server_connection_string().as_str())
+            .expect("connect to Hive");
+
+        let data = hive.handle()
+            .query::<ValueRow>("SELECT '', cast('' AS NVARCHAR), cast('' AS TEXT), cast('' AS NTEXT);")
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, ""));
+        assert_matches!(data[0][1], Some(Value::String(ref string)) => assert_eq!(string, ""));
+        assert_matches!(data[0][2], Some(Value::String(ref string)) => assert_eq!(string, ""));
+        assert_matches!(data[0][3], Some(Value::String(ref string)) => assert_eq!(string, ""));
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_moentdb_string_empty() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut monetdb = odbc
+            .connect(monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let data = monetdb
+            .handle()
+            .query::<ValueRow>("SELECT ''")
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, ""));
+    }
+
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_float() {
@@ -1393,6 +1431,7 @@ mod tests {
 
         assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
     }
+
     #[test]
     fn test_split_queries() {
         let queries = split_queries(
