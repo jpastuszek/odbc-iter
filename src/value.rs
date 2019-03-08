@@ -5,7 +5,7 @@ use std::fmt;
 
 pub type ValueRow = Vec<Option<Value>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Value {
     Bit(bool),
     Tinyint(i8),
@@ -349,6 +349,24 @@ impl fmt::Display for Value {
                 time.hour, time.minute, time.second, time.fraction / 1_000_000),
         }
      }
+}
+
+impl fmt::Debug for Value {
+     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Bit(ref b) => f.debug_tuple("Bit").field(b).finish(),
+            Value::Tinyint(ref n) => f.debug_tuple("Tinyint").field(n).finish(),
+            Value::Smallint(ref n) => f.debug_tuple("Smallint").field(n).finish(),
+            Value::Integer(ref n) => f.debug_tuple("Integer").field(n).finish(),
+            Value::Bigint(ref n) => f.debug_tuple("Bigint").field(n).finish(),
+            Value::Float(ref n) => f.debug_tuple("Float").field(n).finish(),
+            Value::Double(ref n) => f.debug_tuple("Double").field(n).finish(),
+            Value::String(ref s) => f.debug_tuple("String").field(s).finish(),
+            timestamp @ Value::Timestamp(_) => f.debug_tuple("Timestamp").field(&format_args!("{}", timestamp)).finish(),
+            date @ Value::Date(_) => f.debug_tuple("Date").field(&format_args!("{}", date)).finish(),
+            time @ Value::Time(_) => f.debug_tuple("Time").field(&format_args!("{}", time)).finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
