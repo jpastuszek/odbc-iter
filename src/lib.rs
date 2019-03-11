@@ -2,8 +2,8 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, Executed,
-    NoResult, Prepared, ResultSetState, Statement, Version3,
+    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, 
+    NoResult, ResultSetState, Statement, Version3,
 };
 use regex::Regex;
 use std::error::Error;
@@ -17,6 +17,8 @@ pub use odbc::ColumnDescriptor;
 // Allow for custom OdbcType impl for bining
 pub use odbc::ffi;
 pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
+// Rows can be parametrized with this types
+pub use odbc::{Executed, Prepared};
 
 mod convert;
 pub use convert::*;
