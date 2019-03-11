@@ -370,25 +370,29 @@ impl fmt::Debug for Value {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NullableValue<'i>(&'i Option<Value>);
+pub struct NullableValue<'i>(&'i Option<Value>, &'static str);
 
 impl<'i> fmt::Display for NullableValue<'i> {
      fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
             Some(ref v) => fmt::Display::fmt(v, f),
-            None => write!(f, "NULL"),
+            None => write!(f, "{}", self.1),
         }
      }
 }
 
 pub trait AsNullable {
-    fn as_nullable(&self) -> NullableValue;
+    fn as_nullable(&self) -> NullableValue {
+        self.as_nullable_as("NULL")
+    }
+
+    fn as_nullable_as(&self, null: &'static str) -> NullableValue;
 }
 
 impl AsNullable for Option<Value> {
     /// Convert to NullableValue that implements Display for None variant as "NULL"
-    fn as_nullable(&self) -> NullableValue {
-        NullableValue(&self)
+    fn as_nullable_as(&self, null: &'static str) -> NullableValue {
+        NullableValue(&self, null)
     }
 }
 
