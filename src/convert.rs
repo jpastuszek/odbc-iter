@@ -226,9 +226,9 @@ macro_rules! try_from_tuple {
             impl<$($T:TryFromValue),+> TryFromRow for ($($T,)+) {
                 type Schema = Schema;
                 type Error = TryFromRowTupleError;
-                fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
+                fn try_from_row(values: ValueRow, schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
                     if values.len() != count!($($T)+) {
-                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: 1, tuple: stringify![($($T,)+)] })
+                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: schema.len() as u16, tuple: stringify![($($T,)+)] })
                     }
                     let mut values = values.into_iter();
                     Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
