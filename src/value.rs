@@ -450,7 +450,9 @@ mod ser {
                 Value::String(ref s) => serializer.serialize_str(s),
                 ref value @ Value::Timestamp(_) | 
                 ref value @ Value::Date(_) |
-                ref value @ Value::Time(_) => serializer.serialize_str(&value.to_string())
+                ref value @ Value::Time(_) => serializer.serialize_str(&value.to_string()),
+                #[cfg(feature = "serde_json")]
+                Value::Json(ref j) => j.serialize(serializer),
             }
         }
     }
