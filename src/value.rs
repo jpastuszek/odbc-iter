@@ -18,6 +18,8 @@ pub enum Value {
     Timestamp(SqlTimestamp),
     Date(SqlDate),
     Time(SqlSsTime2),
+    #[cfg(feature = "serde_json")]
+    Json(serde_json::Value),
 }
 
 /// Note that `as_` methods return reference so values can be parameter-bound to a query
@@ -185,6 +187,22 @@ impl Value {
         })
     }
 
+    #[cfg(feature = "serde_json")]
+    pub fn as_json(&self) -> Option<&serde_json::Value> {
+        match self {
+            Value::Json(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "serde_json")]
+    pub fn into_json(self) -> Result<serde_json::Value, Value> {
+        match self {
+            Value::Json(value) => Ok(value),
+            _ => Err(self),
+        }
+    }
+
     /// Provide string describing type of this value
     pub fn description(&self) -> &'static str {
         match self {
@@ -199,6 +217,8 @@ impl Value {
             Value::Timestamp(_) => "TIMESTAMP",
             Value::Date(_) => "DATE",
             Value::Time(_) => "TIME",
+            #[cfg(feature = "serde_json")]
+            Value::Json(_) => "JSON",
         }
     }
 }
@@ -321,6 +341,13 @@ impl From<SqlSsTime2> for Value {
     }
 }
 
+#[cfg(feature = "serde_json")]
+impl From<serde_json::Value> for Value {
+    fn from(value: serde_json::Value) -> Value {
+        Value::Json(value)
+    }
+}
+
 impl fmt::Display for Value {
      fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -347,6 +374,8 @@ impl fmt::Display for Value {
             Value::Time(ref time) => write!(f, 
                 "{:02}:{:02}:{:02}.{:03}",
                 time.hour, time.minute, time.second, time.fraction / 1_000_000),
+            #[cfg(feature = "serde_json")]
+            Value::Json(ref json) => write!(f, "{}", json),
         }
      }
 }
@@ -365,6 +394,8 @@ impl fmt::Debug for Value {
             timestamp @ Value::Timestamp(_) => f.debug_tuple("Timestamp").field(&format_args!("{}", timestamp)).finish(),
             date @ Value::Date(_) => f.debug_tuple("Date").field(&format_args!("{}", date)).finish(),
             time @ Value::Time(_) => f.debug_tuple("Time").field(&format_args!("{}", time)).finish(),
+            #[cfg(feature = "serde_json")]
+            Value::Json(ref j) => f.debug_tuple("Json").field(j).finish(),
         }
     }
 }

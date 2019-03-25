@@ -173,6 +173,8 @@ pub enum DataAccessError<R> {
     FromRowError(R),
     FromUtf16Error(FromUtf16Error, &'static str),
     UnexpectedNumberOfRows(&'static str),
+    #[cfg(feature = "serde_json")]
+    JsonError(serde_json::Error),
 }
 
 impl<R> fmt::Display for DataAccessError<R> {
@@ -197,6 +199,8 @@ impl<R> fmt::Display for DataAccessError<R> {
                 "unexpected number of rows returned by query: {}",
                 context
             ),
+            #[cfg(feature = "serde_json")]
+            DataAccessError::JsonError(_) => write!(f, "failed to convert data to JSON Value"),
         }
     }
 }
@@ -212,6 +216,8 @@ where
             DataAccessError::FromRowError(err) => Some(err),
             DataAccessError::FromUtf16Error(err, _) => Some(err),
             DataAccessError::UnexpectedNumberOfRows(_) => None,
+            #[cfg(feature = "serde_json")]
+            DataAccessError::JsonError(err) => Some(err),
         }
     }
 }
@@ -233,6 +239,13 @@ impl<R> From<ErrorContext<DiagnosticRecord, &'static str>> for DataAccessError<R
 impl<R> From<ErrorContext<FromUtf16Error, &'static str>> for DataAccessError<R> {
     fn from(err: ErrorContext<FromUtf16Error, &'static str>) -> DataAccessError<R> {
         DataAccessError::FromUtf16Error(err.error, err.context)
+    }
+}
+
+#[cfg(feature = "serde_json")]
+impl<R> From<serde_json::Error> for DataAccessError<R> {
+    fn from(err: serde_json::Error) -> DataAccessError<R> {
+        DataAccessError::JsonError(err)
     }
 }
 
@@ -548,6 +561,29 @@ where
                                 }
                                 SQL_EXT_BIT => {
                                     cursor_get_data::<S, u8>(&mut cursor, index as u16)?.map(|byte| Value::Bit(if byte == 0 { false } else { true }))
+                                }
+                                SQL_UNKNOWN_TYPE => {
+                                    // handle MonetDB JSON type for now
+                                    match cursor_get_data::<S, String>(&mut cursor, index as u16) {
+                                        Err(err) => Err(err).wrap_error_while("trying to interpret SQL_UNKNOWN_TYPE as SQL_CHAR"),
+                                        Ok(Some(data)) => {
+                                            #[cfg(feature = "serde_json")]
+                                            {
+                                                // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
+                                                if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
+                                                    let json = serde_json::from_str(&data)?;
+                                                    Ok(Some(Value::Json(json)))
+                                                } else {
+                                                    Ok(Some(Value::String(data)))
+                                                }
+                                            }
+                                            #[cfg(not(feature = "serde_json"))]
+                                            {
+                                                Ok(Some(Value::String(data)))
+                                            }
+                                        }
+                                        Ok(None) => Ok(None)
+                                    }?
                                 }
                                 _ => panic!(format!(
                                     "got unimplemented SQL data type: {:?}",
@@ -1027,6 +1063,31 @@ mod tests {
             .expect("fetch data");
 
         assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, ""));
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_moentdb_json() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut monetdb = odbc
+            .connect(monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let data = monetdb
+            .handle()
+            .query::<ValueRow>("SELECT CAST('[\"foo\"]' AS JSON)")
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+
+        #[cfg(feature = "serde_json")]
+        {
+            assert_matches!(data[0][0], Some(Value::Json(serde_json::Value::Array(ref arr))) => assert_eq!(arr, &[serde_json::Value::String("foo".to_owned())]));
+        }
+        #[cfg(not(feature = "serde_json"))]
+        {
+            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "[\"foo\"]"));
+        }
     }
 
     #[cfg(feature = "test-hive")]
