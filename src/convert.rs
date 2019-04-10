@@ -53,6 +53,7 @@ impl TryFromValue for Option<Value> {
 #[derive(Debug)]
 pub enum TryFromValueError {
     UnexpectedNullValue(&'static str),
+    UnexpectedValue,
     UnexpectedType { 
         expected: &'static str, 
         got: &'static str 
@@ -63,6 +64,7 @@ impl fmt::Display for TryFromValueError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TryFromValueError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
+            TryFromValueError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
             TryFromValueError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
         }
     }
@@ -143,6 +145,14 @@ impl TryFromRow for ValueRow {
     type Error = NoError;
     fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values)
+    }
+}
+
+impl TryFromRow for () {
+    type Schema = Schema;
+    type Error = TryFromValueError;
+    fn try_from_row(_values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
+        Err(TryFromValueError::UnexpectedValue)
     }
 }
 
