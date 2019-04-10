@@ -98,7 +98,7 @@ pub enum QueryError<R, S> {
     BindError(DiagnosticRecord),
     FromSchemaError(S),
     MultipleQueriesError(SplitQueriesError),
-    DataAccessError(DataAccessError<R>, &'static str),
+    DataAccessError(DataAccessError<R>),
 }
 
 impl<R, S> fmt::Display for QueryError<R, S> {
@@ -112,8 +112,8 @@ impl<R, S> fmt::Display for QueryError<R, S> {
                 write!(f, "failed to convert table schema to target type")
             }
             QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
-            QueryError::DataAccessError(_, context) => {
-                write!(f, "failed to access result data while {}", context)
+            QueryError::DataAccessError(_) => {
+                write!(f, "failed to access result data")
             }
         }
     }
@@ -130,7 +130,7 @@ where
             QueryError::BindError(err) => Some(err),
             QueryError::FromSchemaError(err) => Some(err),
             QueryError::MultipleQueriesError(err) => Some(err),
-            QueryError::DataAccessError(err, _) => Some(err),
+            QueryError::DataAccessError(err) => Some(err),
         }
     }
 }
@@ -159,13 +159,14 @@ impl<R, S> From<OdbcError> for QueryError<R, S> {
     }
 }
 
-impl<R, S> From<ErrorContext<DataAccessError<R>, &'static str>> for QueryError<R, S> {
-    fn from(err: ErrorContext<DataAccessError<R>, &'static str>) -> QueryError<R, S> {
-        QueryError::DataAccessError(err.error, err.context)
+impl<R, S> From<DataAccessError<R>> for QueryError<R, S> {
+    fn from(err: DataAccessError<R>) -> QueryError<R, S> {
+        QueryError::DataAccessError(err)
     }
 }
 
 /// Errors related to data access to query results
+/// Note: You can convert DataAccessError to QueryError with Into::into
 #[derive(Debug)]
 pub enum DataAccessError<R> {
     OdbcError(DiagnosticRecord, &'static str),
@@ -853,7 +854,6 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
                 .and_then(|query| self.query(query))
                 .and_then(|rows| {
                     rows.collect::<Result<Vec<_>, _>>()
-                        .wrap_error_while("collecing rows from sub-query")
                         .map_err(Into::into)
                 })
         })
