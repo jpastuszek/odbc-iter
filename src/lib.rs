@@ -63,6 +63,12 @@ impl<'a, T: ?Sized> Captures4<'a> for T {}
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
+impl OdbcError {
+    pub fn into_query_error(self) -> QueryError<NoError, NoError> {
+        QueryError::from(self)
+    }
+}
+
 impl fmt::Display for OdbcError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ODBC call failed while {}", self.1)
@@ -176,6 +182,12 @@ pub enum DataAccessError<R> {
     UnexpectedNumberOfRows(&'static str),
     #[cfg(feature = "serde_json")]
     JsonError(serde_json::Error),
+}
+
+impl DataAccessError<NoError> {
+    pub fn into_query_error(self) -> QueryError<NoError, NoError> {
+        QueryError::from(self)
+    }
 }
 
 impl<R> fmt::Display for DataAccessError<R> {
