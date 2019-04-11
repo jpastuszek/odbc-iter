@@ -840,6 +840,46 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         )
     }
 
+    pub fn start_transaction(&mut self) -> Result<(), QueryError<TryFromValueError, NoError>> {
+        self.query::<()>("START TRANSACTION")?.no_result().unwrap();
+        Ok(())
+    }
+
+    pub fn commit(&mut self) -> Result<(), QueryError<TryFromValueError, NoError>> {
+        self.query::<()>("COMMIT")?.no_result().unwrap();
+        Ok(())
+    }
+
+    pub fn rollback(&mut self) -> Result<(), QueryError<TryFromValueError, NoError>> {
+        self.query::<()>("ROLLBACK")?.no_result().unwrap();
+        Ok(())
+    }
+
+    /// Call function in transaction.
+    /// If function returns Err the transaction will be rolled back otherwise committed.
+    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> Result<O, E>) -> Result<Result<O, E>, QueryError<TryFromValueError, NoError>> {
+        self.start_transaction()?;
+        Ok(match f(self) {
+            ok @ Ok(_) => {
+                self.commit()?;
+                ok
+            }
+            err @ Err(_) => {
+                self.rollback()?;
+                err
+            }
+        })
+    }
+
+    /// Commit current transaction, run function and start new one.
+    /// This is useful when you need to do changes with auto-commit for example for schema while in transaction already.
+    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> O) -> Result<O, QueryError<TryFromValueError, NoError>> {
+        self.commit()?;
+        let ret = f(self);
+        self.start_transaction()?;
+        Ok(ret)
+    }
+
     pub fn query_multiple<'q: 'h>(
         &'h mut self,
         queries: &'q str,
