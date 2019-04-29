@@ -1,5 +1,6 @@
 use std::fmt;
 use std::error::Error;
+use std::convert::TryInto;
 use crate::value::{ValueRow, Value};
 use crate::Schema;
 use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
@@ -56,7 +57,10 @@ pub enum TryFromValueError {
     UnexpectedValue,
     UnexpectedType { 
         expected: &'static str, 
-        got: &'static str 
+        got: &'static str,
+    },
+    ValueOutOfRange { 
+        expected: &'static str, 
     },
 }
 
@@ -66,6 +70,7 @@ impl fmt::Display for TryFromValueError {
             TryFromValueError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
             TryFromValueError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
             TryFromValueError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
+            TryFromValueError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
         }
     }
 }
@@ -92,7 +97,26 @@ macro_rules! try_from_value_copy {
         impl TryFromValue for Option<$t> {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| value.$f().ok_or_else(|| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
+                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
+            }
+        }
+    }
+}
+
+macro_rules! try_from_value_unsigned {
+    ($it:ty, $t:ty) => { 
+        impl TryFromValue for $t {
+            type Error = TryFromValueError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value: $it = TryFromValue::try_from_value(value)?;
+                value.try_into().map_err(|_| TryFromValueError::ValueOutOfRange { expected: stringify!($t) })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = TryFromValueError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
             }
         }
     }
@@ -119,9 +143,13 @@ macro_rules! try_from_value_owned {
 
 try_from_value_copy![bool, to_bool];
 try_from_value_copy![i8, to_i8];
+try_from_value_unsigned![i8, u8];
 try_from_value_copy![i16, to_i16];
+try_from_value_unsigned![i16, u16];
 try_from_value_copy![i32, to_i32];
+try_from_value_unsigned![i32, u32];
 try_from_value_copy![i64, to_i64];
+try_from_value_unsigned![i64, u64];
 try_from_value_copy![f32, to_f32];
 try_from_value_copy![f64, to_f64];
 try_from_value_owned![String, into_string];
@@ -509,7 +537,7 @@ mod tests {
             .single()
             .expect("fetch data");
 
-        assert_eq!(value.unwrap(), 42);
+        assert_eq!(value.unwrap(), 42i64);
 
         let value: Option<i64> = db
             .handle()
@@ -519,6 +547,39 @@ mod tests {
             .expect("fetch data");
 
         assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_single_unsigned() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut db = odbc
+            .connect(crate::tests::monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let value: Option<u64> = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap(), 42u64);
+    }
+
+    #[test]
+    #[should_panic(expected = "ValueOutOfRange")]
+    fn test_single_unsigned_err() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut db = odbc
+            .connect(crate::tests::monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let _value: Option<u64> = db
+            .handle()
+            .query("SELECT CAST(-666 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
     }
 
     #[test]
