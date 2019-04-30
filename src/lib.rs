@@ -11,6 +11,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::string::FromUtf16Error;
+use std::convert::Infallible;
 
 // Schema
 pub use odbc::ColumnDescriptor;
@@ -44,7 +45,6 @@ pub use odbc_type::*;
 /// ** Connections behind RefCell, get Handle for each query
 /// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
 /// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
-/// * Replace unit errors with never type when stable
 
 // https://github.com/rust-lang/rust/issues/49431
 pub trait Captures<'a> {}
@@ -64,7 +64,7 @@ impl<'a, T: ?Sized> Captures4<'a> for T {}
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
 impl OdbcError {
-    pub fn into_query_error(self) -> QueryError<NoError, NoError> {
+    pub fn into_query_error(self) -> QueryError<Infallible, Infallible> {
         QueryError::from(self)
     }
 }
@@ -184,8 +184,8 @@ pub enum DataAccessError<R> {
     JsonError(serde_json::Error),
 }
 
-impl DataAccessError<NoError> {
-    pub fn into_query_error(self) -> QueryError<NoError, NoError> {
+impl DataAccessError<Infallible> {
+    pub fn into_query_error(self) -> QueryError<Infallible, Infallible> {
         QueryError::from(self)
     }
 }
@@ -852,24 +852,24 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         )
     }
 
-    pub fn start_transaction(&mut self) -> Result<(), QueryError<TryFromValueError, NoError>> {
+    pub fn start_transaction(&mut self) -> Result<(), QueryError<TryFromValueError, Infallible>> {
         self.query::<()>("START TRANSACTION")?.no_result().unwrap();
         Ok(())
     }
 
-    pub fn commit(&mut self) -> Result<(), QueryError<TryFromValueError, NoError>> {
+    pub fn commit(&mut self) -> Result<(), QueryError<TryFromValueError, Infallible>> {
         self.query::<()>("COMMIT")?.no_result().unwrap();
         Ok(())
     }
 
-    pub fn rollback(&mut self) -> Result<(), QueryError<TryFromValueError, NoError>> {
+    pub fn rollback(&mut self) -> Result<(), QueryError<TryFromValueError, Infallible>> {
         self.query::<()>("ROLLBACK")?.no_result().unwrap();
         Ok(())
     }
 
     /// Call function in transaction.
     /// If function returns Err the transaction will be rolled back otherwise committed.
-    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> Result<O, E>) -> Result<Result<O, E>, QueryError<TryFromValueError, NoError>> {
+    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> Result<O, E>) -> Result<Result<O, E>, QueryError<TryFromValueError, Infallible>> {
         self.start_transaction()?;
         Ok(match f(self) {
             ok @ Ok(_) => {
@@ -885,7 +885,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
 
     /// Commit current transaction, run function and start new one.
     /// This is useful when you need to do changes with auto-commit for example for schema while in transaction already.
-    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> O) -> Result<O, QueryError<TryFromValueError, NoError>> {
+    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> O) -> Result<O, QueryError<TryFromValueError, Infallible>> {
         self.commit()?;
         let ret = f(self);
         self.start_transaction()?;
@@ -895,7 +895,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     pub fn query_multiple<'q: 'h>(
         &'h mut self,
         queries: &'q str,
-    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError<NoError, NoError>>>
+    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError<Infallible, Infallible>>>
                  + Captures<'q>
                  + Captures2<'h>
                  + Captures3<'c>

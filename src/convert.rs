@@ -1,22 +1,11 @@
 use std::fmt;
 use std::error::Error;
 use std::convert::TryInto;
+use std::convert::Infallible;
 use crate::value::{ValueRow, Value};
 use crate::Schema;
 use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
-
-//TODO: use ! type when it is stable
-#[derive(Debug)]
-pub struct NoError;
-
-impl fmt::Display for NoError {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
-        panic!("unexpected error")
-    }
-}
-
-impl Error for NoError {}
 
 /// Convert from ODBC schema to other type of schema
 pub trait TryFromSchema: Sized {
@@ -25,14 +14,14 @@ pub trait TryFromSchema: Sized {
 }
 
 impl TryFromSchema for () {
-    type Error = NoError;
+    type Error = Infallible;
     fn try_from_schema(_schema: &Schema) -> Result<Self, Self::Error> {
         Ok(())
     }
 }
 
 impl TryFromSchema for Schema {
-    type Error = NoError;
+    type Error = Infallible;
     fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error> {
         Ok(schema.clone())
     }
@@ -45,7 +34,7 @@ pub trait TryFromValue: Sized {
 }
 
 impl TryFromValue for Option<Value> {
-    type Error = NoError;
+    type Error = Infallible;
     fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
         Ok(value)
     }
@@ -170,7 +159,7 @@ pub trait TryFromRow: Sized {
 
 impl TryFromRow for ValueRow {
     type Schema = Schema;
-    type Error = NoError;
+    type Error = Infallible;
     fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values)
     }
@@ -396,8 +385,8 @@ mod tests {
 
     impl TryFromRow for Foo {
         type Schema = Schema;
-        type Error = NoError;
-        fn try_from_row(mut values: ValueRow, _schema: &Schema) -> Result<Self, NoError> {
+        type Error = Infallible;
+        fn try_from_row(mut values: ValueRow, _schema: &Schema) -> Result<Self, Infallible> {
             Ok(values
                 .pop()
                 .map(|val| Foo {
