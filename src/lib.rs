@@ -2,7 +2,7 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, 
+    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment,
     NoResult, ResultSetState, Statement, Version3,
 };
 use regex::Regex;
@@ -934,7 +934,7 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQu
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
@@ -959,7 +959,7 @@ mod tests {
 
     #[cfg(feature = "test-monetdb")]
     pub fn monetdb_connection_string() -> String {
-        std::env::var("MONETDB_ODBC_CONNECTION").expect("HIVE_ODBC_CONNECTION not set")
+        std::env::var("MONETDB_ODBC_CONNECTION").expect("MONETDB_ODBC_CONNECTION not set")
     }
 
     #[cfg(feature = "test-hive")]

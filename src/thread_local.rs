@@ -31,3 +31,26 @@ pub fn connection_with<O>(
         f(Ok(db.borrow_mut().as_mut().unwrap()))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused_imports)]
+    use assert_matches::assert_matches;
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_connection_with() {
+        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
+            let monetdb = result.expect("connect to MonetDB");
+            let data = monetdb
+                .handle()
+                .query::<ValueRow>("SELECT 'foo'")
+                .expect("failed to run query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("fetch data");
+
+            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+        })
+    }
+}
