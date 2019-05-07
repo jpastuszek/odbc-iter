@@ -12,23 +12,28 @@ thread_local! {
 /// Connection will be established only once if successful or any time this function is called again after it failed to connect previously
 pub fn connection_with<O>(
     connection_string: &str,
-    f: impl Fn(Result<&mut Connection<'static>, OdbcError>) -> O,
+    f: impl Fn(Result<Connection<'static>, OdbcError>) -> (Option<Connection<'static>>, O),
 ) -> O {
     DB.with(|db| {
-        {
-            let mut db = db.borrow_mut();
-            if db.is_none() {
+        let connection;
+
+        let conn = db.borrow_mut().take();
+        match conn {
+            Some(conn) => connection = conn,
+            None => {
                 let id = std::thread::current().id();
                 debug!("[{:?}] Connecting to database: {}", id, &connection_string);
 
                 match ODBC.with(|odbc| odbc.connect(&connection_string)) {
-                    Ok(connection) => *db = Some(connection),
-                    Err(err) => return f(Err(err)),
+                    Ok(conn) => connection = conn,
+                    Err(err) => return f(Err(err)).1,
                 }
             }
-        };
+        }
 
-        f(Ok(db.borrow_mut().as_mut().unwrap()))
+        let (connection, o) = f(Ok(connection));
+        *db.borrow_mut() = connection;
+        o
     })
 }
 
@@ -42,7 +47,7 @@ mod tests {
     #[test]
     fn test_connection_with() {
         connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
-            let monetdb = result.expect("connect to MonetDB");
+            let mut monetdb = result.expect("connect to MonetDB");
             let data = monetdb
                 .handle()
                 .query::<ValueRow>("SELECT 'foo'")
@@ -51,6 +56,70 @@ mod tests {
                 .expect("fetch data");
 
             assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+            (Some(monetdb), ())
+        })
+    }
+
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_connection_with_reconnect() {
+        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
+            let mut monetdb = result.expect("connect to MonetDB");
+            let data = monetdb
+                .handle()
+                .query::<ValueRow>("SELECT 'foo'")
+                .expect("failed to run query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("fetch data");
+
+            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+            (None, ())
+        });
+
+        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
+            let mut monetdb = result.expect("connect to MonetDB");
+            let data = monetdb
+                .handle()
+                .query::<ValueRow>("SELECT 'foo'")
+                .expect("failed to run query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("fetch data");
+
+            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+            (None, ())
+        })
+    }
+
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_connection_with_nested() {
+        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
+            let mut monetdb = result.expect("connect to MonetDB");
+            let data = monetdb
+                .handle()
+                .query::<ValueRow>("SELECT 'foo'")
+                .expect("failed to run query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("fetch data");
+
+            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+
+            connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
+                let mut monetdb = result.expect("connect to MonetDB");
+                let data = monetdb
+                    .handle()
+                    .query::<ValueRow>("SELECT 'foo'")
+                    .expect("failed to run query")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("fetch data");
+
+                assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+                (Some(monetdb), ())
+            });
+
+            (Some(monetdb), ())
         })
     }
 }
