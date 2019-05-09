@@ -8,6 +8,11 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 
 //TODO: implement TryFrom/TryInto for Value and ValueRow in value.rs for Rust types and use that impls in here
 
+/// This traits allow for convetion of ValueRow type used intarnally by Rows iterator to any
+/// other type returned as Item.
+/// Because ValueRow does not provide names of columns the schema can be used to provide that
+/// information when needed (e.g. when converting to Avro record or JSON map).
+
 /// Convert from ODBC schema to other type of schema
 pub trait TryFromSchema: Sized {
     type Error: Error + 'static;

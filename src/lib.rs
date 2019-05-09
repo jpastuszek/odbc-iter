@@ -32,6 +32,13 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
+/// * reduce number of type parameters
+/// ** by removing implicit converson (TryFromSchema/Row/Value) and providing TryFrom/Into for
+/// Value/Row types and let user deal with it; problem here is that some convertions require column
+/// names which are not available with ValueRow and can't be since Item cannot reference the Iterator
+/// ** or by using Box<dyn Error> for TryFromSchema/Row/Value error type so error types does not -
+/// Schema.zip_with_rows(Rows) addaptor that references schema on stack and iterates rows with it
+/// need parameters
 /// * impl size_hint for Rows
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
