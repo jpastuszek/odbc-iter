@@ -6,10 +6,7 @@ use crate::Schema;
 use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 
-//TODO: replace TryFromSchema and Row with std TryFrom - note that schema is no longer needed as we
-//can infer it from ValueRow type (this was not the case in the past where it was JSON value);
-//still having ref to custom schema object on converion of row (no need to generate this custom
-//object every time) may be useful for some type like CSV, Avro
+//TODO: implement TryFrom/TryInto for Value and ValueRow in value.rs for Rust types and use that impls in here
 
 /// Convert from ODBC schema to other type of schema
 pub trait TryFromSchema: Sized {
