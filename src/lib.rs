@@ -64,7 +64,7 @@ impl<'a, T: ?Sized> Captures4<'a> for T {}
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
 impl OdbcError {
-    pub fn into_query_error(self) -> QueryError<Infallible, Infallible> {
+    pub fn into_query_error<R, S>(self) -> QueryError<R, S> {
         QueryError::from(self)
     }
 }
@@ -184,8 +184,8 @@ pub enum DataAccessError<R> {
     JsonError(serde_json::Error),
 }
 
-impl DataAccessError<Infallible> {
-    pub fn into_query_error(self) -> QueryError<Infallible, Infallible> {
+impl<R> DataAccessError<R> {
+    pub fn into_query_error<S>(self) -> QueryError<R, S> {
         QueryError::from(self)
     }
 }
