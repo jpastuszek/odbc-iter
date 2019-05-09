@@ -1,11 +1,15 @@
 use std::fmt;
 use std::error::Error;
-use std::convert::TryInto;
-use std::convert::Infallible;
+use std::convert::{Infallible, TryInto};
 use crate::value::{ValueRow, Value};
 use crate::Schema;
 use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+
+//TODO: replace TryFromSchema and Row with std TryFrom - note that schema is no longer needed as we
+//can infer it from ValueRow type (this was not the case in the past where it was JSON value);
+//still having ref to custom schema object on converion of row (no need to generate this custom
+//object every time) may be useful for some type like CSV, Avro
 
 /// Convert from ODBC schema to other type of schema
 pub trait TryFromSchema: Sized {
@@ -158,7 +162,7 @@ pub trait TryFromRow: Sized {
 }
 
 impl TryFromRow for ValueRow {
-    type Schema = Schema;
+    type Schema = ();
     type Error = Infallible;
     fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values)
@@ -166,7 +170,7 @@ impl TryFromRow for ValueRow {
 }
 
 impl TryFromRow for () {
-    type Schema = Schema;
+    type Schema = ();
     type Error = TryFromValueError;
     fn try_from_row(_values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Err(TryFromValueError::UnexpectedValue)
@@ -201,7 +205,7 @@ impl<V: Error + 'static> Error for TryFromRowError<V> {
 }
 
 impl<T> TryFromRow for T where T: TryFromValue {
-    type Schema = Schema;
+    type Schema = ();
     type Error = TryFromRowError<<T as TryFromValue>::Error>;
     fn try_from_row(mut values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         if values.len() != 1 {
@@ -251,11 +255,11 @@ macro_rules! try_from_tuple {
     )+) => {
         $(
             impl<$($T:TryFromValue),+> TryFromRow for ($($T,)+) {
-                type Schema = Schema;
+                type Schema = ();
                 type Error = TryFromRowTupleError;
-                fn try_from_row(values: ValueRow, schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
+                fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
                     if values.len() != count!($($T)+) {
-                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: schema.len() as u16, tuple: stringify![($($T,)+)] })
+                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
                     }
                     let mut values = values.into_iter();
                     Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
@@ -698,5 +702,17 @@ mod tests {
         assert!(&value.0.is_none());
         assert_eq!(value.1, 42);
         assert!(value.2.is_none());
+    }
+
+    #[test]
+    fn test_value_row_conversions() {
+        let test_row: ValueRow = vec![Some(Value::Bit(true)), Some(Value::Integer(42)), None];
+        type Test = (Option<bool>, Option<u32>, Option<String>);
+
+        //let (b, u, s): (Option<bool>, Option<u32>, Option<String>) = test_row.try_into().unwrap();
+        let (b, u, s) = Test::try_from_row(test_row, &()).unwrap();
+        assert_eq!(b, Some(true));
+        assert_eq!(u, Some(42));
+        assert_eq!(s, None);
     }
 }
