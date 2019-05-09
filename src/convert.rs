@@ -44,12 +44,12 @@ impl TryFromValue for Option<Value> {
 pub enum TryFromValueError {
     UnexpectedNullValue(&'static str),
     UnexpectedValue,
-    UnexpectedType { 
-        expected: &'static str, 
+    UnexpectedType {
+        expected: &'static str,
         got: &'static str,
     },
-    ValueOutOfRange { 
-        expected: &'static str, 
+    ValueOutOfRange {
+        expected: &'static str,
     },
 }
 
@@ -74,7 +74,7 @@ impl TryFromValue for Value {
 }
 
 macro_rules! try_from_value_copy {
-    ($t:ty, $f:ident) => { 
+    ($t:ty, $f:ident) => {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
@@ -93,7 +93,7 @@ macro_rules! try_from_value_copy {
 }
 
 macro_rules! try_from_value_unsigned {
-    ($it:ty, $t:ty) => { 
+    ($it:ty, $t:ty) => {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
@@ -112,7 +112,7 @@ macro_rules! try_from_value_unsigned {
 }
 
 macro_rules! try_from_value_owned {
-    ($t:ty, $f:ident) => { 
+    ($t:ty, $f:ident) => {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
@@ -175,7 +175,7 @@ impl TryFromRow for () {
 
 #[derive(Debug)]
 pub enum TryFromRowError<V> {
-    UnexpectedNumberOfColumns { 
+    UnexpectedNumberOfColumns {
         expected: u16,
         got: u16,
     },
@@ -213,7 +213,7 @@ impl<T> TryFromRow for T where T: TryFromValue {
 
 #[derive(Debug)]
 pub enum TryFromRowTupleError {
-    UnexpectedNumberOfColumns { 
+    UnexpectedNumberOfColumns {
         expected: u16,
         tuple: &'static str,
     },
@@ -370,10 +370,12 @@ try_from_tuple! {
     }
 }
 
+//TODO: this tests should not need DB
 #[cfg(test)]
-#[cfg(feature = "test-monetdb")]
 mod tests {
+    #[allow(unused_imports)]
     use crate::Odbc;
+    #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
@@ -397,6 +399,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_custom_type() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -414,6 +417,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_value() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -431,6 +435,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_nullable_value() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -458,6 +463,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_value_row() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -477,6 +483,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_copy() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -539,6 +546,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_unsigned() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -556,6 +564,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     #[should_panic(expected = "ValueOutOfRange")]
     fn test_single_unsigned_err() {
         let odbc = Odbc::new().expect("open ODBC");
@@ -572,6 +581,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_string() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -607,6 +617,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_date() {
         use chrono::Datelike;
 
@@ -648,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_tuple_value() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
