@@ -2,6 +2,8 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::fmt;
+use std::convert::TryFrom;
+use std::error::Error;
 
 pub type ValueRow = Vec<Option<Value>>;
 
@@ -426,6 +428,83 @@ impl AsNullable for Option<Value> {
         NullableValue(&self, null)
     }
 }
+
+#[derive(Debug)]
+pub enum TryFromValueError {
+    UnexpectedValue,
+    UnexpectedType {
+        expected: &'static str,
+        got: &'static str,
+    },
+    ValueOutOfRange {
+        expected: &'static str,
+    },
+}
+
+impl fmt::Display for TryFromValueError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TryFromValueError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
+            TryFromValueError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
+            TryFromValueError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
+        }
+    }
+}
+
+impl Error for TryFromValueError {}
+
+macro_rules! try_from_value_copy {
+    ($t:ty, $f:ident) => {
+        impl TryFrom<Value> for $t {
+            type Error = TryFromValueError;
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                value.$f().ok_or_else(|| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+    }
+}
+
+macro_rules! try_from_value_unsigned {
+    ($it:ty, $t:ty) => {
+        impl TryFrom<Value> for $t {
+            type Error = TryFromValueError;
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                let value: $it = value.try_into()?;
+                value.try_into().map_err(|_| TryFromValueError::ValueOutOfRange { expected: stringify!($t) })
+            }
+        }
+    }
+}
+
+macro_rules! try_from_value_owned {
+    ($t:ty, $f:ident) => {
+        impl TryFrom<Value> for $t {
+            type Error = TryFromValueError;
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                value.$f().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+    }
+}
+
+try_from_value_copy![bool, to_bool];
+try_from_value_copy![i8, to_i8];
+try_from_value_unsigned![i8, u8];
+try_from_value_copy![i16, to_i16];
+try_from_value_unsigned![i16, u16];
+try_from_value_copy![i32, to_i32];
+try_from_value_unsigned![i32, u32];
+try_from_value_copy![i64, to_i64];
+try_from_value_unsigned![i64, u64];
+try_from_value_copy![f32, to_f32];
+try_from_value_copy![f64, to_f64];
+try_from_value_owned![String, into_string];
+try_from_value_owned![SqlTimestamp, into_timestamp];
+try_from_value_copy![NaiveDateTime, to_naive_date_time];
+try_from_value_owned![SqlDate, into_date];
+try_from_value_copy![NaiveDate, to_naive_date];
+try_from_value_owned![SqlSsTime2, into_time];
+try_from_value_copy![NaiveTime, to_naive_time];
 
 #[cfg(feature = "serde")]
 mod ser {

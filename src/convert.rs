@@ -1,10 +1,8 @@
 use std::fmt;
 use std::error::Error;
-use std::convert::{Infallible, TryInto};
-use crate::value::{ValueRow, Value};
+use std::convert::{Infallible, TryFrom};
+use crate::value::{ValueRow, Value, TryFromValueError};
 use crate::Schema;
-use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
-use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 
 //TODO: implement TryFrom/TryInto for Value and ValueRow in value.rs for Rust types and use that impls in here
 
@@ -13,209 +11,84 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 /// Because ValueRow does not provide names of columns the schema can be used to provide that
 /// information when needed (e.g. when converting to Avro record or JSON map).
 
-/// Convert from ODBC schema to other type of schema
-pub trait TryFromSchema: Sized {
-    type Error: Error + 'static;
-    fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error>;
-}
-
-impl TryFromSchema for () {
-    type Error = Infallible;
-    fn try_from_schema(_schema: &Schema) -> Result<Self, Self::Error> {
-        Ok(())
-    }
-}
-
-impl TryFromSchema for Schema {
-    type Error = Infallible;
-    fn try_from_schema(schema: &Schema) -> Result<Self, Self::Error> {
-        Ok(schema.clone())
-    }
-}
-
-/// Convert single column value to given type
-pub trait TryFromValue: Sized {
-    type Error: Error + 'static;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
-}
-
-impl TryFromValue for Option<Value> {
-    type Error = Infallible;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        Ok(value)
-    }
-}
+#[derive(Debug)]
+pub struct ValueRowWithNames<'n>(pub ValueRow, pub &'n[String]);
 
 #[derive(Debug)]
-pub enum TryFromValueError {
+pub enum TryFromRowError {
     UnexpectedNullValue(&'static str),
     UnexpectedValue,
-    UnexpectedType {
-        expected: &'static str,
-        got: &'static str,
-    },
-    ValueOutOfRange {
-        expected: &'static str,
-    },
-}
-
-impl fmt::Display for TryFromValueError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TryFromValueError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
-            TryFromValueError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
-            TryFromValueError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
-            TryFromValueError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
-        }
-    }
-}
-
-impl Error for TryFromValueError {}
-
-impl TryFromValue for Value {
-    type Error = TryFromValueError;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-        value.ok_or_else(|| TryFromValueError::UnexpectedNullValue("Value"))
-    }
-}
-
-macro_rules! try_from_value_copy {
-    ($t:ty, $f:ident) => {
-        impl TryFromValue for $t {
-            type Error = TryFromValueError;
-            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue(stringify!($t)))?;
-                value.$f().ok_or_else(|| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
-            }
-        }
-
-        impl TryFromValue for Option<$t> {
-            type Error = TryFromValueError;
-            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
-            }
-        }
-    }
-}
-
-macro_rules! try_from_value_unsigned {
-    ($it:ty, $t:ty) => {
-        impl TryFromValue for $t {
-            type Error = TryFromValueError;
-            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value: $it = TryFromValue::try_from_value(value)?;
-                value.try_into().map_err(|_| TryFromValueError::ValueOutOfRange { expected: stringify!($t) })
-            }
-        }
-
-        impl TryFromValue for Option<$t> {
-            type Error = TryFromValueError;
-            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
-            }
-        }
-    }
-}
-
-macro_rules! try_from_value_owned {
-    ($t:ty, $f:ident) => {
-        impl TryFromValue for $t {
-            type Error = TryFromValueError;
-            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value = value.ok_or_else(|| TryFromValueError::UnexpectedNullValue(stringify!($t)))?;
-                value.$f().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })
-            }
-        }
-
-        impl TryFromValue for Option<$t> {
-            type Error = TryFromValueError;
-            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| value.$f().map_err(|value| TryFromValueError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
-            }
-        }
-    }
-}
-
-try_from_value_copy![bool, to_bool];
-try_from_value_copy![i8, to_i8];
-try_from_value_unsigned![i8, u8];
-try_from_value_copy![i16, to_i16];
-try_from_value_unsigned![i16, u16];
-try_from_value_copy![i32, to_i32];
-try_from_value_unsigned![i32, u32];
-try_from_value_copy![i64, to_i64];
-try_from_value_unsigned![i64, u64];
-try_from_value_copy![f32, to_f32];
-try_from_value_copy![f64, to_f64];
-try_from_value_owned![String, into_string];
-try_from_value_owned![SqlTimestamp, into_timestamp];
-try_from_value_copy![NaiveDateTime, to_naive_date_time];
-try_from_value_owned![SqlDate, into_date];
-try_from_value_copy![NaiveDate, to_naive_date];
-try_from_value_owned![SqlSsTime2, into_time];
-try_from_value_copy![NaiveTime, to_naive_time];
-
-/// Convert from ODBC row to other type of value
-pub trait TryFromRow: Sized {
-    /// Type of schema for the target value
-    type Schema: TryFromSchema;
-    type Error: Error + 'static;
-    fn try_from_row(values: ValueRow, schema: &Self::Schema) -> Result<Self, Self::Error>;
-}
-
-impl TryFromRow for ValueRow {
-    type Schema = ();
-    type Error = Infallible;
-    fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-        Ok(values)
-    }
-}
-
-impl TryFromRow for () {
-    type Schema = ();
-    type Error = TryFromValueError;
-    fn try_from_row(_values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-        Err(TryFromValueError::UnexpectedValue)
-    }
-}
-
-#[derive(Debug)]
-pub enum TryFromRowError<V> {
     UnexpectedNumberOfColumns {
         expected: u16,
         got: u16,
     },
-    ValueConversionError(V),
+    ColumnValueError(TryFromValueError),
 }
 
-impl<V> fmt::Display for TryFromRowError<V> {
+impl fmt::Display for TryFromRowError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            TryFromRowError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
+            TryFromRowError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
             TryFromRowError::UnexpectedNumberOfColumns { expected, got } => write!(f, "unexpected number of columns: expected {} but got {}", expected, got),
-            TryFromRowError::ValueConversionError(_) => write!(f, "failed to convert column value to target type"),
+            TryFromRowError::ColumnValueError(_) => write!(f, "failed to convert column value to target type"),
         }
     }
 }
 
-impl<V: Error + 'static> Error for TryFromRowError<V> {
+impl Error for TryFromRowError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            TryFromRowError::UnexpectedNullValue(_) |
+            TryFromRowError::UnexpectedValue |
             TryFromRowError::UnexpectedNumberOfColumns { .. } => None,
-            TryFromRowError::ValueConversionError(err) => Some(err),
+            TryFromRowError::ColumnValueError(err) => Some(err),
         }
     }
 }
 
-impl<T> TryFromRow for T where T: TryFromValue {
-    type Schema = ();
-    type Error = TryFromRowError<<T as TryFromValue>::Error>;
-    fn try_from_row(mut values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
-        if values.len() != 1 {
-            return Err(TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() as u16 })
+//TODO: TryFrom.. for T: TryFrom<..>
+
+impl<'n>TryFrom<ValueRowWithNames<'n>> for Value {
+    type Error = TryFromRowError;
+    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
+        if values.0.len() != 1 {
+            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
         }
-        T::try_from_value(values.pop().unwrap()).map_err(|err| TryFromRowError::ValueConversionError(err))
+        Ok(values.0[0].ok_or_else(|| TryFromRowError::UnexpectedNullValue("Value")))
     }
 }
+
+impl<'n>TryFrom<ValueRowWithNames<'n>> for Option<Value> {
+    type Error = TryFromRowError;
+    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
+        if values.0.len() != 1 {
+            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+        }
+        Ok(values.0[0])
+    }
+}
+
+impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for T {
+    type Error = TryFromRowError;
+    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
+        if values.0.len() != 1 {
+            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+        }
+        Ok(values.0[0].ok_or_else(|| TryFromRowError::UnexpectedNullValue("Value")).try_into())
+    }
+}
+
+impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for Option<Value> {
+    type Error = TryFromRowError;
+    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
+        if values.0.len() != 1 {
+            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+        }
+        Ok(values.0[0].try_into())
+    }
+}
+
 
 #[derive(Debug)]
 pub enum TryFromRowTupleError {
@@ -256,14 +129,13 @@ macro_rules! try_from_tuple {
         }
     )+) => {
         $(
-            impl<$($T:TryFromValue),+> TryFromRow for ($($T,)+) {
-                type Schema = ();
+            impl<'n, $($T:TryFrom<ValueRowWithNames<'n>>),+> TryFrom<ValueRowWithNames<'n>> for ($($T,)+) {
                 type Error = TryFromRowTupleError;
-                fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
-                    if values.len() != count!($($T)+) {
+                fn try_from(values: ValueRowWithNames<'n>) -> Result<($($T,)+), Self::Error> {
+                    if values.0.len() != count!($($T)+) {
                         return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
                     }
-                    let mut values = values.into_iter();
+                    let mut values = values.0.into_iter();
                     Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
                 }
             }
@@ -391,10 +263,9 @@ mod tests {
         val: i64,
     }
 
-    impl TryFromRow for Foo {
-        type Schema = Schema;
+    impl<'n>TryFrom<ValueRowWithNames<'n>> for Foo {
         type Error = Infallible;
-        fn try_from_row(mut values: ValueRow, _schema: &Schema) -> Result<Self, Infallible> {
+        fn try_from(mut values: ValueRowWithNames<'n>) -> Result<Self, Infallible> {
             Ok(values
                 .pop()
                 .map(|val| Foo {
