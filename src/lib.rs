@@ -2,7 +2,7 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, 
+    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment,
     NoResult, ResultSetState, Statement, Version3,
 };
 use regex::Regex;
@@ -32,6 +32,13 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
+/// * reduce number of type parameters
+/// ** by removing implicit converson (TryFromSchema/Row/Value) and providing TryFrom/Into for
+/// Value/Row types and let user deal with it; problem here is that some convertions require column
+/// names which are not available with ValueRow and can't be since Item cannot reference the Iterator
+/// ** or by using Box<dyn Error> for TryFromSchema/Row/Value error type so error types does not -
+/// Schema.zip_with_rows(Rows) addaptor that references schema on stack and iterates rows with it
+/// need parameters
 /// * impl size_hint for Rows
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
@@ -64,7 +71,7 @@ impl<'a, T: ?Sized> Captures4<'a> for T {}
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
 impl OdbcError {
-    pub fn into_query_error(self) -> QueryError<Infallible, Infallible> {
+    pub fn into_query_error<R, S>(self) -> QueryError<R, S> {
         QueryError::from(self)
     }
 }
@@ -184,8 +191,8 @@ pub enum DataAccessError<R> {
     JsonError(serde_json::Error),
 }
 
-impl DataAccessError<Infallible> {
-    pub fn into_query_error(self) -> QueryError<Infallible, Infallible> {
+impl<R> DataAccessError<R> {
+    pub fn into_query_error<S>(self) -> QueryError<R, S> {
         QueryError::from(self)
     }
 }
@@ -934,7 +941,7 @@ pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQu
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
@@ -959,7 +966,7 @@ mod tests {
 
     #[cfg(feature = "test-monetdb")]
     pub fn monetdb_connection_string() -> String {
-        std::env::var("MONETDB_ODBC_CONNECTION").expect("HIVE_ODBC_CONNECTION not set")
+        std::env::var("MONETDB_ODBC_CONNECTION").expect("MONETDB_ODBC_CONNECTION not set")
     }
 
     #[cfg(feature = "test-hive")]

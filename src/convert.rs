@@ -1,11 +1,17 @@
 use std::fmt;
 use std::error::Error;
-use std::convert::TryInto;
-use std::convert::Infallible;
+use std::convert::{Infallible, TryInto};
 use crate::value::{ValueRow, Value};
 use crate::Schema;
 use crate::{SqlTimestamp, SqlDate, SqlSsTime2};
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+
+//TODO: implement TryFrom/TryInto for Value and ValueRow in value.rs for Rust types and use that impls in here
+
+/// This traits allow for convetion of ValueRow type used intarnally by Rows iterator to any
+/// other type returned as Item.
+/// Because ValueRow does not provide names of columns the schema can be used to provide that
+/// information when needed (e.g. when converting to Avro record or JSON map).
 
 /// Convert from ODBC schema to other type of schema
 pub trait TryFromSchema: Sized {
@@ -44,12 +50,12 @@ impl TryFromValue for Option<Value> {
 pub enum TryFromValueError {
     UnexpectedNullValue(&'static str),
     UnexpectedValue,
-    UnexpectedType { 
-        expected: &'static str, 
+    UnexpectedType {
+        expected: &'static str,
         got: &'static str,
     },
-    ValueOutOfRange { 
-        expected: &'static str, 
+    ValueOutOfRange {
+        expected: &'static str,
     },
 }
 
@@ -74,7 +80,7 @@ impl TryFromValue for Value {
 }
 
 macro_rules! try_from_value_copy {
-    ($t:ty, $f:ident) => { 
+    ($t:ty, $f:ident) => {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
@@ -93,7 +99,7 @@ macro_rules! try_from_value_copy {
 }
 
 macro_rules! try_from_value_unsigned {
-    ($it:ty, $t:ty) => { 
+    ($it:ty, $t:ty) => {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
@@ -112,7 +118,7 @@ macro_rules! try_from_value_unsigned {
 }
 
 macro_rules! try_from_value_owned {
-    ($t:ty, $f:ident) => { 
+    ($t:ty, $f:ident) => {
         impl TryFromValue for $t {
             type Error = TryFromValueError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
@@ -158,7 +164,7 @@ pub trait TryFromRow: Sized {
 }
 
 impl TryFromRow for ValueRow {
-    type Schema = Schema;
+    type Schema = ();
     type Error = Infallible;
     fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Ok(values)
@@ -166,7 +172,7 @@ impl TryFromRow for ValueRow {
 }
 
 impl TryFromRow for () {
-    type Schema = Schema;
+    type Schema = ();
     type Error = TryFromValueError;
     fn try_from_row(_values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         Err(TryFromValueError::UnexpectedValue)
@@ -175,7 +181,7 @@ impl TryFromRow for () {
 
 #[derive(Debug)]
 pub enum TryFromRowError<V> {
-    UnexpectedNumberOfColumns { 
+    UnexpectedNumberOfColumns {
         expected: u16,
         got: u16,
     },
@@ -201,7 +207,7 @@ impl<V: Error + 'static> Error for TryFromRowError<V> {
 }
 
 impl<T> TryFromRow for T where T: TryFromValue {
-    type Schema = Schema;
+    type Schema = ();
     type Error = TryFromRowError<<T as TryFromValue>::Error>;
     fn try_from_row(mut values: ValueRow, _schema: &Self::Schema) -> Result<Self, Self::Error> {
         if values.len() != 1 {
@@ -213,7 +219,7 @@ impl<T> TryFromRow for T where T: TryFromValue {
 
 #[derive(Debug)]
 pub enum TryFromRowTupleError {
-    UnexpectedNumberOfColumns { 
+    UnexpectedNumberOfColumns {
         expected: u16,
         tuple: &'static str,
     },
@@ -251,11 +257,11 @@ macro_rules! try_from_tuple {
     )+) => {
         $(
             impl<$($T:TryFromValue),+> TryFromRow for ($($T,)+) {
-                type Schema = Schema;
+                type Schema = ();
                 type Error = TryFromRowTupleError;
-                fn try_from_row(values: ValueRow, schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
+                fn try_from_row(values: ValueRow, _schema: &Self::Schema) -> Result<($($T,)+), Self::Error> {
                     if values.len() != count!($($T)+) {
-                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: schema.len() as u16, tuple: stringify![($($T,)+)] })
+                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
                     }
                     let mut values = values.into_iter();
                     Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
@@ -370,10 +376,12 @@ try_from_tuple! {
     }
 }
 
+//TODO: this tests should not need DB
 #[cfg(test)]
-#[cfg(feature = "test-monetdb")]
 mod tests {
+    #[allow(unused_imports)]
     use crate::Odbc;
+    #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
@@ -397,6 +405,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_custom_type() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -414,6 +423,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_value() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -431,6 +441,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_nullable_value() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -458,6 +469,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_value_row() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -477,6 +489,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_copy() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -539,6 +552,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_unsigned() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -556,6 +570,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     #[should_panic(expected = "ValueOutOfRange")]
     fn test_single_unsigned_err() {
         let odbc = Odbc::new().expect("open ODBC");
@@ -572,6 +587,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_string() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -607,6 +623,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_single_date() {
         use chrono::Datelike;
 
@@ -648,6 +665,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "test-monetdb")]
     fn test_tuple_value() {
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
@@ -686,5 +704,17 @@ mod tests {
         assert!(&value.0.is_none());
         assert_eq!(value.1, 42);
         assert!(value.2.is_none());
+    }
+
+    #[test]
+    fn test_value_row_conversions() {
+        let test_row: ValueRow = vec![Some(Value::Bit(true)), Some(Value::Integer(42)), None];
+        type Test = (Option<bool>, Option<u32>, Option<String>);
+
+        //let (b, u, s): (Option<bool>, Option<u32>, Option<String>) = test_row.try_into().unwrap();
+        let (b, u, s) = Test::try_from_row(test_row, &()).unwrap();
+        assert_eq!(b, Some(true));
+        assert_eq!(u, Some(42));
+        assert_eq!(s, None);
     }
 }
