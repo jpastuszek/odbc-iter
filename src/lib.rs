@@ -440,7 +440,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Prepared>
 where
-     V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
 {
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
         match self.statement.take().unwrap() {
@@ -468,7 +468,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Executed>
 where
-     V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
 {
     pub fn close(mut self) -> Result<(), OdbcError> {
         if let ExecutedStatement::HasResult(statement) = self.statement.take().unwrap() {
@@ -498,7 +498,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for Rows<'h, 'c, V, S>
 where
-     V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
 {
     type Item = Result<V, DataAccessError<V::Error>>;
 
@@ -619,7 +619,7 @@ where
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| ValueRowWithNames(v, self.column_names()).map_err(DataAccessError::FromRowError)))
+        .map(|v| v.and_then(|v| ValueRowWithNames(v, self.column_names()).try_into().map_err(DataAccessError::FromRowError)))
     }
 }
 
@@ -759,7 +759,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError<V::Error>,
     >
     where
-         V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -796,7 +796,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError<V::Error>,
     >
     where
-         V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
     {
         self.query_with_parameters(query, |b| Ok(b))
     }
@@ -810,7 +810,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError<V::Error>,
     >
     where
-         V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -834,7 +834,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError<V::Error>,
     >
     where
-         V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
     {
         self.execute_with_parameters(statement, |b| Ok(b))
     }
@@ -848,7 +848,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError<V::Error>,
     >
     where
-        V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();
