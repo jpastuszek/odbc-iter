@@ -15,7 +15,7 @@ use std::convert::Infallible;
 
 // Schema
 pub use odbc::ColumnDescriptor;
-// Allow for custom OdbcType impl for bining
+// Allow for custom OdbcType impl for binning
 pub use odbc::ffi;
 pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 // Rows can be parametrized with this types
