@@ -42,7 +42,11 @@ pub use odbc_type::*;
 /// ** schema is available on Rows object so implement conversion of Rows object to another type of result set e.g. AvroResultSet
 /// *** Limit here is that you can only convert full ResultSet to Vec of given type if that type requires column names
 /// ** use https://docs.rs/serde_db/0.8.2/serde_db/de/index.html to implement conversion to serde types - there are many problems with that, looks like Java dev designed it
-/// ** separate ResultSet from Rows iterator so that each Row can have reference to schema stored in ResultSet that then can be used to convert single row into types requiering column names 
+/// ** separate ResultSet from Rows iterator so that each Row can have reference to schema stored in ResultSet that then can be used to convert single row into types requiring column names
+/// *** problem is that returned Row cannot own the data as we cannot mutate ResultSet via Rows iterator - IntoIter cannot be implemented (https://gist.github.com/jpastuszek/d07391f617ac8a3656ecb41c4462ec97)
+/// *** alternatively Rows cannot take ownership of ResultSet or it won't be able to put references to column names to each Row - would need to put column list behind Rc (https://gist.github.com/jpastuszek/49ec870810aba06a9795c65a03de2d71)
+/// *** give up on Iterator impl and just provide next() method that gives out references to self
+/// *** add ValueRowWithSchema type that is short lived inside next() and used to do the conversion before ValueRow or T is emitted (https://gist.github.com/jpastuszek/6ab7fafb0042ea56dabfcd75e33a1ea2)
 /// * Rename Rows to ResultSet - https://en.wikipedia.org/wiki/Result_set
 /// * impl size_hint for Rows
 /// * impl Debug on all structs
