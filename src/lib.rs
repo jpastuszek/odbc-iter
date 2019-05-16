@@ -32,13 +32,18 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
-/// * reduce number of type parameters
-/// ** by removing implicit converson (TryFromSchema/Row/Value) and providing TryFrom/Into for
-/// Value/Row types and let user deal with it; problem here is that some convertions require column
+/// * Reduce number of type parameters
+/// ** by removing implicit conversion (TryFromSchema/Row/Value) and providing TryFrom/Into for
+/// Value/Row types and let user deal with it; problem here is that some conversions require column
 /// names which are not available with ValueRow and can't be since Item cannot reference the Iterator
 /// ** or by using Box<dyn Error> for TryFromSchema/Row/Value error type so error types does not -
 /// Schema.zip_with_rows(Rows) addaptor that references schema on stack and iterates rows with it
 /// need parameters
+/// ** schema is available on Rows object so implement conversion of Rows object to another type of result set e.g. AvroResultSet
+/// *** Limit here is that you can only convert full ResultSet to Vec of given type if that type requires column names
+/// ** use https://docs.rs/serde_db/0.8.2/serde_db/de/index.html to implement conversion to serde types - there are many problems with that, looks like Java dev designed it
+/// ** separate ResultSet from Rows iterator so that each Row can have reference to schema stored in ResultSet that then can be used to convert single row into types requiering column names 
+/// * Rename Rows to ResultSet - https://en.wikipedia.org/wiki/Result_set
 /// * impl size_hint for Rows
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
