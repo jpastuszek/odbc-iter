@@ -2,7 +2,6 @@ use std::fmt;
 use std::error::Error;
 use std::convert::{Infallible, TryFrom};
 use crate::value::{ValueRow, Value, TryFromValueError};
-use crate::Schema;
 
 //TODO: implement TryFrom/TryInto for Value and ValueRow in value.rs for Rust types and use that impls in here
 
@@ -49,46 +48,45 @@ impl Error for TryFromRowError {
 
 //TODO: TryFrom.. for T: TryFrom<..>
 
-impl<'n>TryFrom<ValueRowWithNames<'n>> for Value {
+impl<'n> TryFrom<ValueRowWithNames<'n>> for Value {
     type Error = TryFromRowError;
     fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
         if values.0.len() != 1 {
-            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+            return Err(TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.0.len() })
         }
-        Ok(values.0[0].ok_or_else(|| TryFromRowError::UnexpectedNullValue("Value")))
+        values.0[0].ok_or_else(|| TryFromRowError::UnexpectedNullValue("Value"))
     }
 }
 
-impl<'n>TryFrom<ValueRowWithNames<'n>> for Option<Value> {
+impl<'n> TryFrom<ValueRowWithNames<'n>> for Option<Value> {
     type Error = TryFromRowError;
     fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
         if values.0.len() != 1 {
-            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+            return Err(TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.0.len() })
         }
         Ok(values.0[0])
     }
 }
 
-impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for T {
-    type Error = TryFromRowError;
-    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
-        if values.0.len() != 1 {
-            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
-        }
-        Ok(values.0[0].ok_or_else(|| TryFromRowError::UnexpectedNullValue("Value")).try_into())
-    }
-}
+// impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for T {
+//     type Error = TryFromRowError;
+//     fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
+//         if values.0.len() != 1 {
+//             return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+//         }
+//         Ok(values.0[0].ok_or_else(|| TryFromRowError::UnexpectedNullValue("Value")).try_into())
+//     }
+// }
 
-impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for Option<Value> {
-    type Error = TryFromRowError;
-    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
-        if values.0.len() != 1 {
-            return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
-        }
-        Ok(values.0[0].try_into())
-    }
-}
-
+// impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for Option<Value> {
+//     type Error = TryFromRowError;
+//     fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
+//         if values.0.len() != 1 {
+//             return TryFromRowError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
+//         }
+//         Ok(values.0[0].try_into())
+//     }
+// }
 
 #[derive(Debug)]
 pub enum TryFromRowTupleError {
@@ -129,14 +127,14 @@ macro_rules! try_from_tuple {
         }
     )+) => {
         $(
-            impl<'n, $($T:TryFrom<ValueRowWithNames<'n>>),+> TryFrom<ValueRowWithNames<'n>> for ($($T,)+) {
+            impl<'n, $($T: TryFrom<Value>),+> TryFrom<ValueRowWithNames<'n>> for ($($T,)+) {
                 type Error = TryFromRowTupleError;
                 fn try_from(values: ValueRowWithNames<'n>) -> Result<($($T,)+), Self::Error> {
                     if values.0.len() != count!($($T)+) {
-                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
+                        return Err(TryFromRowTupleError::UnexpectedNumberOfColumns { expected: values.0.len() as u16, tuple: stringify![($($T,)+)] })
                     }
                     let mut values = values.0.into_iter();
-                    Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
+                    Ok(($({ let x: $T = $T::try_from(values.next().unwrap()).map_err(|err| TryFromRowTupleError::ValueConversionError(Box::new(err)))?; x},)+))
                 }
             }
         )+
