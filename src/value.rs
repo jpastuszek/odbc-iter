@@ -2,7 +2,7 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::fmt;
-use std::convert::TryInto;
+use std::convert::{Infallible, TryInto};
 use std::error::Error;
 
 pub type ValueRow = Vec<Option<Value>>;
@@ -429,10 +429,14 @@ impl AsNullable for Option<Value> {
     }
 }
 
+pub trait TryFromValue: Sized {
+    type Error: Error + 'static;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
+}
+
 #[derive(Debug)]
 pub enum ValueConvertError {
     UnexpectedNullValue(&'static str),
-    UnexpectedValue,
     UnexpectedType {
         expected: &'static str,
         got: &'static str,
@@ -442,16 +446,10 @@ pub enum ValueConvertError {
     },
 }
 
-pub trait TryFromValue: Sized {
-    type Error: Error + 'static;
-    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
-}
-
 impl fmt::Display for ValueConvertError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ValueConvertError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
-            ValueConvertError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
             ValueConvertError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
             ValueConvertError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
         }
@@ -459,6 +457,20 @@ impl fmt::Display for ValueConvertError {
 }
 
 impl Error for ValueConvertError {}
+
+impl TryFromValue for Value {
+    type Error = ValueConvertError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        value.ok_or_else(|| ValueConvertError::UnexpectedNullValue("Value"))
+    }
+}
+
+impl TryFromValue for Option<Value> {
+    type Error = Infallible;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        Ok(value)
+    }
+}
 
 macro_rules! try_from_value_copy {
     ($t:ty, $f:ident) => {

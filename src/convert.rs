@@ -482,6 +482,7 @@ mod tests {
     #[cfg(feature = "test-monetdb")]
     fn test_single_date() {
         use chrono::Datelike;
+        use chrono::NaiveDate;
 
         let odbc = Odbc::new().expect("open ODBC");
         let mut db = odbc
