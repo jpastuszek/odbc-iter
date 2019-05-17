@@ -59,6 +59,7 @@ pub trait Captures4<'a> {}
 impl<'a, T: ?Sized> Captures4<'a> for T {}
 
 /// General ODBC initialization and connection errors
+/// Note: You can convert OdbcError to QueryError with Into::into or .into_query_error()
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
@@ -162,7 +163,7 @@ impl From<DataAccessError> for QueryError {
 }
 
 /// Errors related to data access to query results
-/// Note: You can convert DataAccessError to QueryError with Into::into
+/// Note: You can convert DataAccessError to QueryError with Into::into or .into_query_error()
 #[derive(Debug)]
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
