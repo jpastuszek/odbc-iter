@@ -5,7 +5,7 @@ use crate::value::{Value, TryFromValue};
 
 pub type ValueRow = Vec<Option<Value>>;
 
-/// This traits allow for convetion of ValueRow type used intarnally by Rows iterator to any
+/// This traits allow for convetion of ValueRow type used intarnally by ResultSet iterator to any
 /// other type returned as Item.
 /// 
 /// Note: TryFrom/TryInto cannot be implemented since we need to own the trait

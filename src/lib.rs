@@ -17,7 +17,7 @@ pub use odbc::ColumnDescriptor;
 // Allow for custom OdbcType impl for binning
 pub use odbc::ffi;
 pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
-// Rows can be parametrized with this types
+// ResultSet can be parametrized with this types
 pub use odbc::{Executed, Prepared};
 
 pub mod schema_access;
@@ -31,7 +31,6 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
-/// * Rename Rows to ResultSet - https://en.wikipedia.org/wiki/Result_set
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
@@ -277,7 +276,7 @@ pub type EnvironmentV3 = Environment<Version3>;
 pub type Schema = Vec<ColumnDescriptor>;
 
 /// Iterate rows converting them to given value type
-pub struct Rows<'h, 'c, V, S> {
+pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
     odbc_schema: Vec<ColumnDescriptor>,
     column_names: Vec<String>,
@@ -286,7 +285,7 @@ pub struct Rows<'h, 'c, V, S> {
     phantom: PhantomData<&'h V>,
 }
 
-impl<'h, 'c, V, S> Drop for Rows<'h, 'c, V, S> {
+impl<'h, 'c, V, S> Drop for ResultSet<'h, 'c, V, S> {
     fn drop(&mut self) {
         // We need to make sure statement is dropped; implementing Drop forces use of drop(row_iter) if not consumed before another query
         // Should Statement not impl Drop itself?
@@ -299,7 +298,7 @@ enum ExecutedStatement<'c, S> {
     NoResult(odbc::Statement<'c, 'c, S, odbc::NoResult>),
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> Rows<'h, 'c, V, S>
+impl<'h, 'c: 'h, 'o: 'c, V, S> ResultSet<'h, 'c, V, S>
 where
     V: TryFromValueRow,
 {
@@ -308,7 +307,7 @@ where
         result: ResultSetState<'c, '_, S>,
         utf_16_strings: bool,
     ) -> Result<
-        Rows<'h, 'c, V, S>,
+        ResultSet<'h, 'c, V, S>,
         QueryError,
     > {
         let (odbc_schema, columns, statement) = match result {
@@ -363,7 +362,7 @@ where
         // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
         let column_names = odbc_schema.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
 
-        Ok(Rows {
+        Ok(ResultSet {
             statement: Some(statement),
             odbc_schema,
             column_names,
@@ -409,7 +408,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Prepared>
+impl<'h, 'c: 'h, 'o: 'c, V> ResultSet<'h, 'c, V, Prepared>
 where
     V: TryFromValueRow,
 {
@@ -437,7 +436,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Executed>
+impl<'h, 'c: 'h, 'o: 'c, V> ResultSet<'h, 'c, V, Executed>
 where
     V: TryFromValueRow,
 {
@@ -467,7 +466,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for Rows<'h, 'c, V, S>
+impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for ResultSet<'h, 'c, V, S>
 where
     V: TryFromValueRow,
 {
@@ -726,7 +725,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         table: Option<&'i str>,
         table_type: Option<&'i str>,
     ) -> Result<
-        Rows<'h, 'c, V, Executed>,
+        ResultSet<'h, 'c, V, Executed>,
         QueryError,
     >
     where
@@ -745,7 +744,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
                 .wrap_error_while("executing direct statement")?,
         );
 
-        Rows::from_result(self, result_set, self.0.utf_16_strings)
+        ResultSet::from_result(self, result_set, self.0.utf_16_strings)
     }
 
     pub fn prepare(&'h mut self, query: &str) -> Result<PreparedStatement<'c>, OdbcError> {
@@ -763,7 +762,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         &'h mut self,
         query: &str,
     ) -> Result<
-        Rows<'h, 'c, V, Executed>,
+        ResultSet<'h, 'c, V, Executed>,
         QueryError,
     >
     where
@@ -777,7 +776,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         query: &str,
         bind: F,
     ) -> Result<
-        Rows<'h, 'c, V, Executed>,
+        ResultSet<'h, 'c, V, Executed>,
         QueryError,
     >
     where
@@ -788,7 +787,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
 
         let statement = bind(self.statement()?.into())?.into_inner();
 
-        Rows::from_result(
+        ResultSet::from_result(
             self,
             statement
                 .exec_direct(query)
@@ -801,7 +800,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         &'h mut self,
         statement: PreparedStatement<'c>,
     ) -> Result<
-        Rows<'h, 'c, V, Prepared>,
+        ResultSet<'h, 'c, V, Prepared>,
         QueryError,
     >
     where
@@ -815,7 +814,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         statement: PreparedStatement<'c>,
         bind: F,
     ) -> Result<
-        Rows<'h, 'c, V, Prepared>,
+        ResultSet<'h, 'c, V, Prepared>,
         QueryError,
     >
     where
@@ -824,7 +823,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     {
         let statement = bind(statement.0.into())?.into_inner();
 
-        Rows::from_result(
+        ResultSet::from_result(
             self,
             statement
                 .execute()
