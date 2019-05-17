@@ -5,8 +5,6 @@ use std::fmt;
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 
-pub type ValueRow = Vec<Option<Value>>;
-
 #[derive(Clone, PartialEq)]
 pub enum Value {
     Bit(bool),
@@ -552,7 +550,6 @@ try_from_value_copy![NaiveTime, to_naive_time];
 mod ser {
     use serde::{self, Serialize};
     use super::*;
-    //TODO: ValueRow (as Vec) and SchemaAccess (Map)
 
     impl Serialize for Value {
         #[inline]

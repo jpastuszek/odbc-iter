@@ -20,34 +20,18 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 // Rows can be parametrized with this types
 pub use odbc::{Executed, Prepared};
 
-mod convert;
-pub use convert::*;
 pub mod schema_access;
-pub mod value;
-pub use value::{Value, ValueRow, NullableValue, AsNullable};
+mod value;
+pub use value::{Value, NullableValue, AsNullable};
+mod value_row;
+pub use value_row::{ValueRow, TryFromValueRow};
 pub mod thread_local;
 pub use thread_local::connection_with as thread_local_connection_with;
 mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
-/// * Reduce number of type parameters
-/// ** by removing implicit conversion (TryFromSchema/Row/Value) and providing TryFrom/Into for
-/// Value/Row types and let user deal with it; problem here is that some conversions require column
-/// names which are not available with ValueRow and can't be since Item cannot reference the Iterator
-/// ** or by using Box<dyn Error> for TryFromSchema/Row/Value error type so error types does not -
-/// Schema.zip_with_rows(Rows) addaptor that references schema on stack and iterates rows with it
-/// need parameters
-/// ** schema is available on Rows object so implement conversion of Rows object to another type of result set e.g. AvroResultSet
-/// *** Limit here is that you can only convert full ResultSet to Vec of given type if that type requires column names
-/// ** use https://docs.rs/serde_db/0.8.2/serde_db/de/index.html to implement conversion to serde types - there are many problems with that, looks like Java dev designed it
-/// ** separate ResultSet from Rows iterator so that each Row can have reference to schema stored in ResultSet that then can be used to convert single row into types requiring column names
-/// *** problem is that returned Row cannot own the data as we cannot mutate ResultSet via Rows iterator - IntoIter cannot be implemented (https://gist.github.com/jpastuszek/d07391f617ac8a3656ecb41c4462ec97)
-/// *** alternatively Rows cannot take ownership of ResultSet or it won't be able to put references to column names to each Row - would need to put column list behind Rc (https://gist.github.com/jpastuszek/49ec870810aba06a9795c65a03de2d71)
-/// *** give up on Iterator impl and just provide next() method that gives out references to self
-/// *** add ValueRowWithNames type that is short lived inside next() and used to do the conversion before ValueRow or T is emitted (https://gist.github.com/jpastuszek/6ab7fafb0042ea56dabfcd75e33a1ea2)
 /// * Rename Rows to ResultSet - https://en.wikipedia.org/wiki/Result_set
-/// * impl size_hint for Rows
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
@@ -183,7 +167,6 @@ impl From<DataAccessError> for QueryError {
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
     OdbcCursorError(DiagnosticRecord),
-    /// We have to take by Box<dyn Error> since V::Error gives: error[E0212]: cannot extract an associated type from a higher-ranked trait bound in this context
     FromRowError(Box<dyn Error>),
     FromUtf16Error(FromUtf16Error, &'static str),
     UnexpectedNumberOfRows(&'static str),
@@ -317,7 +300,7 @@ enum ExecutedStatement<'c, S> {
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Rows<'h, 'c, V, S>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     fn from_result(
         _handle: &'h Handle<'c, 'o>,
@@ -427,7 +410,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Prepared>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
         match self.statement.take().unwrap() {
@@ -455,7 +438,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Executed>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     pub fn close(mut self) -> Result<(), OdbcError> {
         if let ExecutedStatement::HasResult(statement) = self.statement.take().unwrap() {
@@ -485,7 +468,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for Rows<'h, 'c, V, S>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     type Item = Result<V, DataAccessError>;
 
@@ -606,7 +589,7 @@ where
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, self.column_names()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))))
+        .map(|v| v.and_then(|v| TryFromValueRow::try_from_row(v, self.column_names()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))))
     }
 }
 
@@ -746,7 +729,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: TryFromRow,
+       V: TryFromValueRow,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -783,7 +766,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: TryFromRow,
+       V: TryFromValueRow,
     {
         self.query_with_parameters(query, |b| Ok(b))
     }
@@ -797,7 +780,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: TryFromRow,
+       V: TryFromValueRow,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -821,7 +804,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: TryFromRow,
+       V: TryFromValueRow,
     {
         self.execute_with_parameters(statement, |b| Ok(b))
     }
@@ -835,7 +818,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: TryFromRow,
+       V: TryFromValueRow,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();

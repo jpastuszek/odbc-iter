@@ -1,7 +1,9 @@
 use std::fmt;
 use std::error::Error;
 use std::convert::Infallible;
-use crate::value::{ValueRow, TryFromValue};
+use crate::value::{Value, TryFromValue};
+
+pub type ValueRow = Vec<Option<Value>>;
 
 /// This traits allow for convetion of ValueRow type used intarnally by Rows iterator to any
 /// other type returned as Item.
@@ -9,7 +11,7 @@ use crate::value::{ValueRow, TryFromValue};
 /// Note: TryFrom/TryInto cannot be implemented since we need to own the trait
 
 /// Given column names convert from Row to other type of value
-pub trait TryFromRow: Sized {
+pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
     fn try_from_row<'n>(values: ValueRow, column_names: &'n[String]) -> Result<Self, Self::Error>;
 }
@@ -47,21 +49,21 @@ impl Error for RowConvertError {
     }
 }
 
-impl TryFromRow for ValueRow {
+impl TryFromValueRow for ValueRow {
     type Error = Infallible;
     fn try_from_row<'n>(values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
         Ok(values)
     }
 }
 
-impl TryFromRow for () {
+impl TryFromValueRow for () {
     type Error = RowConvertError;
     fn try_from_row<'n>(_values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
 
-impl<T> TryFromRow for T where T: TryFromValue {
+impl<T> TryFromValueRow for T where T: TryFromValue {
     type Error = RowConvertError;
     fn try_from_row<'n>(mut values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
         if values.len() != 1 {
@@ -112,7 +114,7 @@ macro_rules! try_from_tuple {
         }
     )+) => {
         $(
-            impl<$($T: TryFromValue),+> TryFromRow for ($($T,)+) {
+            impl<$($T: TryFromValue),+> TryFromValueRow for ($($T,)+) {
                 type Error = RowConvertTupleError;
                 fn try_from_row<'n>(values: ValueRow, _column_names: &'n[String]) -> Result<($($T,)+), Self::Error> {
                     if values.len() != count!($($T)+) {
@@ -246,7 +248,7 @@ mod tests {
         val: i64,
     }
 
-    impl TryFromRow for Foo {
+    impl TryFromValueRow for Foo {
         type Error = Infallible;
         fn try_from_row<'n>(mut values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
             Ok(values
