@@ -1,17 +1,18 @@
 use std::fmt;
 use std::error::Error;
-use std::convert::{Infallible, TryFrom};
-use crate::value::{ValueRow, Value, ValueConvertError};
-
-//TODO: implement TryFrom/TryInto for Value and ValueRow in value.rs for Rust types and use that impls in here
+use std::convert::Infallible;
+use crate::value::{ValueRow, TryFromValue};
 
 /// This traits allow for convetion of ValueRow type used intarnally by Rows iterator to any
 /// other type returned as Item.
-/// Because ValueRow does not provide names of columns the schema can be used to provide that
-/// information when needed (e.g. when converting to Avro record or JSON map).
+/// 
+/// Note: TryFrom/TryInto cannot be implemented since we need to own the trait
 
-#[derive(Debug)]
-pub struct ValueRowWithNames<'n>(pub ValueRow, pub &'n[String]);
+/// Given column names convert from Row to other type of value
+pub trait TryFromRow: Sized {
+    type Error: Error + 'static;
+    fn try_from_row<'n>(values: ValueRow, column_names: &'n[String]) -> Result<Self, Self::Error>;
+}
 
 #[derive(Debug)]
 pub enum RowConvertError {
@@ -19,9 +20,9 @@ pub enum RowConvertError {
     UnexpectedValue,
     UnexpectedNumberOfColumns {
         expected: u16,
-        got: u16,
+        got: usize,
     },
-    ColumnValueError(ValueConvertError),
+    ValueConvertError(Box<dyn Error>),
 }
 
 impl fmt::Display for RowConvertError {
@@ -30,7 +31,7 @@ impl fmt::Display for RowConvertError {
             RowConvertError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
             RowConvertError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
             RowConvertError::UnexpectedNumberOfColumns { expected, got } => write!(f, "unexpected number of columns: expected {} but got {}", expected, got),
-            RowConvertError::ColumnValueError(_) => write!(f, "failed to convert column value to target type"),
+            RowConvertError::ValueConvertError(_) => write!(f, "failed to convert column value to target type"),
         }
     }
 }
@@ -41,52 +42,36 @@ impl Error for RowConvertError {
             RowConvertError::UnexpectedNullValue(_) |
             RowConvertError::UnexpectedValue |
             RowConvertError::UnexpectedNumberOfColumns { .. } => None,
-            RowConvertError::ColumnValueError(err) => Some(err),
+            RowConvertError::ValueConvertError(err) => Some(err.as_ref()),
         }
     }
 }
 
-//TODO: TryFrom.. for T: TryFrom<..>
+impl TryFromRow for ValueRow {
+    type Error = Infallible;
+    fn try_from_row<'n>(values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+        Ok(values)
+    }
+}
 
-impl<'n> TryFrom<ValueRowWithNames<'n>> for Value {
+impl TryFromRow for () {
     type Error = RowConvertError;
-    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
-        if values.0.len() != 1 {
-            return Err(RowConvertError::UnexpectedNumberOfColumns { expected: 1, got: values.0.len() })
-        }
-        values.0[0].ok_or_else(|| RowConvertError::UnexpectedNullValue("Value"))
+    fn try_from_row<'n>(_values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+        Err(RowConvertError::UnexpectedValue)
     }
 }
 
-impl<'n> TryFrom<ValueRowWithNames<'n>> for Option<Value> {
+impl<T> TryFromRow for T where T: TryFromValue {
     type Error = RowConvertError;
-    fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
-        if values.0.len() != 1 {
-            return Err(RowConvertError::UnexpectedNumberOfColumns { expected: 1, got: values.0.len() })
+    fn try_from_row<'n>(mut values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+        if values.len() != 1 {
+            return Err(RowConvertError::UnexpectedNumberOfColumns { expected: 1, got: values.len() })
         }
-        Ok(values.0[0])
+        values.pop()
+            .ok_or_else(|| RowConvertError::UnexpectedNullValue("Value"))
+            .and_then(|v| TryFromValue::try_from_value(v).map_err(|e| RowConvertError::ValueConvertError(Box::new(e))))
     }
 }
-
-// impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for T {
-//     type Error = RowConvertError;
-//     fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
-//         if values.0.len() != 1 {
-//             return RowConvertError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
-//         }
-//         Ok(values.0[0].ok_or_else(|| RowConvertError::UnexpectedNullValue("Value")).try_into())
-//     }
-// }
-
-// impl<'n, T: TryFrom<ValueRowWithNames<'n>>> TryFrom<ValueRowWithNames<'n>> for Option<Value> {
-//     type Error = RowConvertError;
-//     fn try_from(values: ValueRowWithNames<'n>) -> Result<Self, Self::Error> {
-//         if values.0.len() != 1 {
-//             return RowConvertError::UnexpectedNumberOfColumns { expected: 1, got: values.len() }
-//         }
-//         Ok(values.0[0].try_into())
-//     }
-// }
 
 #[derive(Debug)]
 pub enum RowConvertTupleError {
@@ -94,14 +79,14 @@ pub enum RowConvertTupleError {
         expected: u16,
         tuple: &'static str,
     },
-    ValueConversionError(Box<dyn Error + 'static>),
+    ValueConvertError(Box<dyn Error>),
 }
 
 impl fmt::Display for RowConvertTupleError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             RowConvertTupleError::UnexpectedNumberOfColumns { expected, tuple } => write!(f, "failed to convert row with {} columns to tuple {}", expected, tuple),
-            RowConvertTupleError::ValueConversionError(_) => write!(f, "failed to convert column value to target type"),
+            RowConvertTupleError::ValueConvertError(_) => write!(f, "failed to convert column value to target type"),
         }
     }
 }
@@ -110,7 +95,7 @@ impl Error for RowConvertTupleError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             RowConvertTupleError::UnexpectedNumberOfColumns { .. } => None,
-            RowConvertTupleError::ValueConversionError(err) => Some(err.as_ref()),
+            RowConvertTupleError::ValueConvertError(err) => Some(err.as_ref()),
         }
     }
 }
@@ -127,14 +112,14 @@ macro_rules! try_from_tuple {
         }
     )+) => {
         $(
-            impl<'n, $($T: TryFrom<Value>),+> TryFrom<ValueRowWithNames<'n>> for ($($T,)+) {
+            impl<$($T: TryFromValue),+> TryFromRow for ($($T,)+) {
                 type Error = RowConvertTupleError;
-                fn try_from(values: ValueRowWithNames<'n>) -> Result<($($T,)+), Self::Error> {
-                    if values.0.len() != count!($($T)+) {
-                        return Err(RowConvertTupleError::UnexpectedNumberOfColumns { expected: values.0.len() as u16, tuple: stringify![($($T,)+)] })
+                fn try_from_row<'n>(values: ValueRow, _column_names: &'n[String]) -> Result<($($T,)+), Self::Error> {
+                    if values.len() != count!($($T)+) {
+                        return Err(RowConvertTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
                     }
-                    let mut values = values.0.into_iter();
-                    Ok(($({ let x: $T = $T::try_from(values.next().unwrap()).map_err(|err| RowConvertTupleError::ValueConversionError(Box::new(err)))?; x},)+))
+                    let mut values = values.into_iter();
+                    Ok(($({ let x: $T = $T::try_from_value(values.next().unwrap()).map_err(|err| RowConvertTupleError::ValueConvertError(Box::new(err)))?; x},)+))
                 }
             }
         )+
@@ -261,9 +246,9 @@ mod tests {
         val: i64,
     }
 
-    impl<'n>TryFrom<ValueRowWithNames<'n>> for Foo {
+    impl TryFromRow for Foo {
         type Error = Infallible;
-        fn try_from(mut values: ValueRowWithNames<'n>) -> Result<Self, Infallible> {
+        fn try_from_row<'n>(mut values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
             Ok(values
                 .pop()
                 .map(|val| Foo {
@@ -272,6 +257,8 @@ mod tests {
                 .expect("value"))
         }
     }
+
+    use crate::value::Value;
 
     #[test]
     #[cfg(feature = "test-monetdb")]
@@ -581,7 +568,7 @@ mod tests {
         type Test = (Option<bool>, Option<u32>, Option<String>);
 
         //let (b, u, s): (Option<bool>, Option<u32>, Option<String>) = test_row.try_into().unwrap();
-        let (b, u, s) = Test::try_from_row(test_row, &()).unwrap();
+        let (b, u, s) = Test::try_from_row(test_row, &[]).unwrap();
         assert_eq!(b, Some(true));
         assert_eq!(u, Some(42));
         assert_eq!(s, None);

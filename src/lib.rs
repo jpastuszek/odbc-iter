@@ -11,7 +11,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::string::FromUtf16Error;
-use std::convert::{Infallible, TryFrom};
 
 // Schema
 pub use odbc::ColumnDescriptor;
@@ -80,7 +79,7 @@ impl<'a, T: ?Sized> Captures4<'a> for T {}
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
 impl OdbcError {
-    pub fn into_query_error<R, S>(self) -> QueryError {
+    pub fn into_query_error(self) -> QueryError {
         QueryError::from(self)
     }
 }
@@ -193,7 +192,7 @@ pub enum DataAccessError {
 }
 
 impl DataAccessError {
-    pub fn into_query_error<S>(self) -> QueryError {
+    pub fn into_query_error(self) -> QueryError {
         QueryError::from(self)
     }
 }
@@ -318,7 +317,7 @@ enum ExecutedStatement<'c, S> {
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Rows<'h, 'c, V, S>
 where
-    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: TryFromRow,
 {
     fn from_result(
         _handle: &'h Handle<'c, 'o>,
@@ -428,7 +427,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Prepared>
 where
-    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: TryFromRow,
 {
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
         match self.statement.take().unwrap() {
@@ -456,7 +455,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Executed>
 where
-    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: TryFromRow,
 {
     pub fn close(mut self) -> Result<(), OdbcError> {
         if let ExecutedStatement::HasResult(statement) = self.statement.take().unwrap() {
@@ -486,7 +485,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for Rows<'h, 'c, V, S>
 where
-    V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+    V: TryFromRow,
 {
     type Item = Result<V, DataAccessError>;
 
@@ -607,7 +606,7 @@ where
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| ValueRowWithNames(v, self.column_names()).try_into().map_err(DataAccessError::FromRowError)))
+        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, self.column_names()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))))
     }
 }
 
@@ -747,7 +746,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: TryFromRow,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -784,7 +783,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: TryFromRow,
     {
         self.query_with_parameters(query, |b| Ok(b))
     }
@@ -798,7 +797,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: TryFromRow,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -822,7 +821,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: TryFromRow,
     {
         self.execute_with_parameters(statement, |b| Ok(b))
     }
@@ -836,7 +835,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         QueryError,
     >
     where
-       V: for<'n> TryFrom<ValueRowWithNames<'n>>,
+       V: TryFromRow,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();
@@ -893,7 +892,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     pub fn query_multiple<'q: 'h>(
         &'h mut self,
         queries: &'q str,
-    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError<Infallible, Infallible>>>
+    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError>>
                  + Captures<'q>
                  + Captures2<'h>
                  + Captures3<'c>
@@ -904,7 +903,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
                 .and_then(|query| self.query(query))
                 .and_then(|rows| {
                     rows.collect::<Result<Vec<_>, _>>()
-                        .map_err(Into::into)
+                        .map_err(|err| err.into_query_error())
                 })
         })
     }

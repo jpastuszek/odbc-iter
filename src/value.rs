@@ -2,7 +2,7 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::fmt;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 use std::error::Error;
 
 pub type ValueRow = Vec<Option<Value>>;
@@ -431,6 +431,7 @@ impl AsNullable for Option<Value> {
 
 #[derive(Debug)]
 pub enum ValueConvertError {
+    UnexpectedNullValue(&'static str),
     UnexpectedValue,
     UnexpectedType {
         expected: &'static str,
@@ -441,9 +442,15 @@ pub enum ValueConvertError {
     },
 }
 
+pub trait TryFromValue: Sized {
+    type Error: Error + 'static;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
+}
+
 impl fmt::Display for ValueConvertError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            ValueConvertError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
             ValueConvertError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
             ValueConvertError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
             ValueConvertError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
@@ -455,10 +462,18 @@ impl Error for ValueConvertError {}
 
 macro_rules! try_from_value_copy {
     ($t:ty, $f:ident) => {
-        impl TryFrom<Value> for $t {
+        impl TryFromValue for $t {
             type Error = ValueConvertError;
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value = value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
                 value.$f().ok_or_else(|| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
             }
         }
     }
@@ -466,11 +481,18 @@ macro_rules! try_from_value_copy {
 
 macro_rules! try_from_value_unsigned {
     ($it:ty, $t:ty) => {
-        impl TryFrom<Value> for $t {
+        impl TryFromValue for $t {
             type Error = ValueConvertError;
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
-                let value: $it = value.try_into()?;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value: $it = TryFromValue::try_from_value(value)?;
                 value.try_into().map_err(|_| ValueConvertError::ValueOutOfRange { expected: stringify!($t) })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
             }
         }
     }
@@ -478,10 +500,18 @@ macro_rules! try_from_value_unsigned {
 
 macro_rules! try_from_value_owned {
     ($t:ty, $f:ident) => {
-        impl TryFrom<Value> for $t {
+        impl TryFromValue for $t {
             type Error = ValueConvertError;
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value = value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
                 value.$f().map_err(|value| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| value.$f().map_err(|value| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
             }
         }
     }
