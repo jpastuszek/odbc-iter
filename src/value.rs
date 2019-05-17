@@ -2,8 +2,8 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::fmt;
-
-pub type ValueRow = Vec<Option<Value>>;
+use std::convert::{Infallible, TryInto};
+use std::error::Error;
 
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -427,11 +427,129 @@ impl AsNullable for Option<Value> {
     }
 }
 
+pub trait TryFromValue: Sized {
+    type Error: Error + 'static;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
+}
+
+#[derive(Debug)]
+pub enum ValueConvertError {
+    UnexpectedNullValue(&'static str),
+    UnexpectedType {
+        expected: &'static str,
+        got: &'static str,
+    },
+    ValueOutOfRange {
+        expected: &'static str,
+    },
+}
+
+impl fmt::Display for ValueConvertError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ValueConvertError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
+            ValueConvertError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
+            ValueConvertError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
+        }
+    }
+}
+
+impl Error for ValueConvertError {}
+
+impl TryFromValue for Value {
+    type Error = ValueConvertError;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        value.ok_or_else(|| ValueConvertError::UnexpectedNullValue("Value"))
+    }
+}
+
+impl TryFromValue for Option<Value> {
+    type Error = Infallible;
+    fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+        Ok(value)
+    }
+}
+
+macro_rules! try_from_value_copy {
+    ($t:ty, $f:ident) => {
+        impl TryFromValue for $t {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value = value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
+                value.$f().ok_or_else(|| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
+            }
+        }
+    }
+}
+
+macro_rules! try_from_value_unsigned {
+    ($it:ty, $t:ty) => {
+        impl TryFromValue for $t {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value: $it = TryFromValue::try_from_value(value)?;
+                value.try_into().map_err(|_| ValueConvertError::ValueOutOfRange { expected: stringify!($t) })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
+            }
+        }
+    }
+}
+
+macro_rules! try_from_value_owned {
+    ($t:ty, $f:ident) => {
+        impl TryFromValue for $t {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                let value = value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
+                value.$f().map_err(|value| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })
+            }
+        }
+
+        impl TryFromValue for Option<$t> {
+            type Error = ValueConvertError;
+            fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
+                value.map(|value| value.$f().map_err(|value| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
+            }
+        }
+    }
+}
+
+try_from_value_copy![bool, to_bool];
+try_from_value_copy![i8, to_i8];
+try_from_value_unsigned![i8, u8];
+try_from_value_copy![i16, to_i16];
+try_from_value_unsigned![i16, u16];
+try_from_value_copy![i32, to_i32];
+try_from_value_unsigned![i32, u32];
+try_from_value_copy![i64, to_i64];
+try_from_value_unsigned![i64, u64];
+try_from_value_copy![f32, to_f32];
+try_from_value_copy![f64, to_f64];
+try_from_value_owned![String, into_string];
+try_from_value_owned![SqlTimestamp, into_timestamp];
+try_from_value_copy![NaiveDateTime, to_naive_date_time];
+try_from_value_owned![SqlDate, into_date];
+try_from_value_copy![NaiveDate, to_naive_date];
+try_from_value_owned![SqlSsTime2, into_time];
+try_from_value_copy![NaiveTime, to_naive_time];
+
 #[cfg(feature = "serde")]
 mod ser {
     use serde::{self, Serialize};
     use super::*;
-    //TODO: ValueRow (as Vec) and SchemaAccess (Map)
 
     impl Serialize for Value {
         #[inline]

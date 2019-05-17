@@ -11,7 +11,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::string::FromUtf16Error;
-use std::convert::Infallible;
 
 // Schema
 pub use odbc::ColumnDescriptor;
@@ -21,34 +20,18 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 // Rows can be parametrized with this types
 pub use odbc::{Executed, Prepared};
 
-mod convert;
-pub use convert::*;
 pub mod schema_access;
-pub mod value;
-pub use value::{Value, ValueRow, NullableValue, AsNullable};
+mod value;
+pub use value::{Value, NullableValue, AsNullable};
+mod value_row;
+pub use value_row::{ValueRow, TryFromValueRow};
 pub mod thread_local;
 pub use thread_local::connection_with as thread_local_connection_with;
 mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
-/// * Reduce number of type parameters
-/// ** by removing implicit conversion (TryFromSchema/Row/Value) and providing TryFrom/Into for
-/// Value/Row types and let user deal with it; problem here is that some conversions require column
-/// names which are not available with ValueRow and can't be since Item cannot reference the Iterator
-/// ** or by using Box<dyn Error> for TryFromSchema/Row/Value error type so error types does not -
-/// Schema.zip_with_rows(Rows) addaptor that references schema on stack and iterates rows with it
-/// need parameters
-/// ** schema is available on Rows object so implement conversion of Rows object to another type of result set e.g. AvroResultSet
-/// *** Limit here is that you can only convert full ResultSet to Vec of given type if that type requires column names
-/// ** use https://docs.rs/serde_db/0.8.2/serde_db/de/index.html to implement conversion to serde types - there are many problems with that, looks like Java dev designed it
-/// ** separate ResultSet from Rows iterator so that each Row can have reference to schema stored in ResultSet that then can be used to convert single row into types requiring column names
-/// *** problem is that returned Row cannot own the data as we cannot mutate ResultSet via Rows iterator - IntoIter cannot be implemented (https://gist.github.com/jpastuszek/d07391f617ac8a3656ecb41c4462ec97)
-/// *** alternatively Rows cannot take ownership of ResultSet or it won't be able to put references to column names to each Row - would need to put column list behind Rc (https://gist.github.com/jpastuszek/49ec870810aba06a9795c65a03de2d71)
-/// *** give up on Iterator impl and just provide next() method that gives out references to self
-/// *** add ValueRowWithSchema type that is short lived inside next() and used to do the conversion before ValueRow or T is emitted (https://gist.github.com/jpastuszek/6ab7fafb0042ea56dabfcd75e33a1ea2)
 /// * Rename Rows to ResultSet - https://en.wikipedia.org/wiki/Result_set
-/// * impl size_hint for Rows
 /// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
@@ -76,11 +59,12 @@ pub trait Captures4<'a> {}
 impl<'a, T: ?Sized> Captures4<'a> for T {}
 
 /// General ODBC initialization and connection errors
+/// Note: You can convert OdbcError to QueryError with Into::into or .into_query_error()
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
 impl OdbcError {
-    pub fn into_query_error<R, S>(self) -> QueryError<R, S> {
+    pub fn into_query_error(self) -> QueryError {
         QueryError::from(self)
     }
 }
@@ -115,23 +99,19 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
 
 /// Errors related to query execution
 #[derive(Debug)]
-pub enum QueryError<R, S> {
+pub enum QueryError {
     OdbcError(OdbcError),
     BindError(DiagnosticRecord),
-    FromSchemaError(S),
     MultipleQueriesError(SplitQueriesError),
-    DataAccessError(DataAccessError<R>),
+    DataAccessError(DataAccessError),
 }
 
-impl<R, S> fmt::Display for QueryError<R, S> {
+impl fmt::Display for QueryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             QueryError::OdbcError(err) => write!(f, "{}", err),
             QueryError::BindError(_) => {
                 write!(f, "ODBC call failed while binding parameter to statement")
-            }
-            QueryError::FromSchemaError(_) => {
-                write!(f, "failed to convert table schema to target type")
             }
             QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
             QueryError::DataAccessError(_) => {
@@ -141,72 +121,67 @@ impl<R, S> fmt::Display for QueryError<R, S> {
     }
 }
 
-impl<R, S> Error for QueryError<R, S>
-where
-    R: Error + 'static,
-    S: Error + 'static,
-{
+impl Error for QueryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             QueryError::OdbcError(err) => err.source(),
             QueryError::BindError(err) => Some(err),
-            QueryError::FromSchemaError(err) => Some(err),
             QueryError::MultipleQueriesError(err) => Some(err),
             QueryError::DataAccessError(err) => Some(err),
         }
     }
 }
 
-impl<R, S> From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError<R, S> {
-    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> QueryError<R, S> {
+impl From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError {
+    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> QueryError {
         QueryError::OdbcError(err.into())
     }
 }
 
-impl<R, S> From<BindError> for QueryError<R, S> {
-    fn from(err: BindError) -> QueryError<R, S> {
+impl From<BindError> for QueryError {
+    fn from(err: BindError) -> QueryError {
         QueryError::BindError(err.0)
     }
 }
 
-impl<R, S> From<SplitQueriesError> for QueryError<R, S> {
-    fn from(err: SplitQueriesError) -> QueryError<R, S> {
+impl From<SplitQueriesError> for QueryError {
+    fn from(err: SplitQueriesError) -> QueryError {
         QueryError::MultipleQueriesError(err)
     }
 }
 
-impl<R, S> From<OdbcError> for QueryError<R, S> {
-    fn from(err: OdbcError) -> QueryError<R, S> {
+impl From<OdbcError> for QueryError {
+    fn from(err: OdbcError) -> QueryError {
         QueryError::OdbcError(err)
     }
 }
 
-impl<R, S> From<DataAccessError<R>> for QueryError<R, S> {
-    fn from(err: DataAccessError<R>) -> QueryError<R, S> {
+impl From<DataAccessError> for QueryError {
+    fn from(err: DataAccessError) -> QueryError {
         QueryError::DataAccessError(err)
     }
 }
 
 /// Errors related to data access to query results
-/// Note: You can convert DataAccessError to QueryError with Into::into
+/// Note: You can convert DataAccessError to QueryError with Into::into or .into_query_error()
 #[derive(Debug)]
-pub enum DataAccessError<R> {
+pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
     OdbcCursorError(DiagnosticRecord),
-    FromRowError(R),
+    FromRowError(Box<dyn Error>),
     FromUtf16Error(FromUtf16Error, &'static str),
     UnexpectedNumberOfRows(&'static str),
     #[cfg(feature = "serde_json")]
     JsonError(serde_json::Error),
 }
 
-impl<R> DataAccessError<R> {
-    pub fn into_query_error<S>(self) -> QueryError<R, S> {
+impl DataAccessError {
+    pub fn into_query_error(self) -> QueryError {
         QueryError::from(self)
     }
 }
 
-impl<R> fmt::Display for DataAccessError<R> {
+impl fmt::Display for DataAccessError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             DataAccessError::OdbcError(_, context) => {
@@ -234,15 +209,12 @@ impl<R> fmt::Display for DataAccessError<R> {
     }
 }
 
-impl<R> Error for DataAccessError<R>
-where
-    R: Error + 'static,
-{
+impl Error for DataAccessError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             DataAccessError::OdbcError(err, _) => Some(err),
             DataAccessError::OdbcCursorError(err) => Some(err),
-            DataAccessError::FromRowError(err) => Some(err),
+            DataAccessError::FromRowError(err) => Some(err.as_ref()),
             DataAccessError::FromUtf16Error(err, _) => Some(err),
             DataAccessError::UnexpectedNumberOfRows(_) => None,
             #[cfg(feature = "serde_json")]
@@ -253,27 +225,27 @@ where
 
 // Note that we don't give context for cursor data access at this time
 // TODO: better way to distinguish between general ODBC errors and cursor errors
-impl<R> From<DiagnosticRecord> for DataAccessError<R> {
-    fn from(err: DiagnosticRecord) -> DataAccessError<R> {
+impl From<DiagnosticRecord> for DataAccessError {
+    fn from(err: DiagnosticRecord) -> DataAccessError {
         DataAccessError::OdbcCursorError(err)
     }
 }
 
-impl<R> From<ErrorContext<DiagnosticRecord, &'static str>> for DataAccessError<R> {
-    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> DataAccessError<R> {
+impl From<ErrorContext<DiagnosticRecord, &'static str>> for DataAccessError {
+    fn from(err: ErrorContext<DiagnosticRecord, &'static str>) -> DataAccessError {
         DataAccessError::OdbcError(err.error, err.context)
     }
 }
 
-impl<R> From<ErrorContext<FromUtf16Error, &'static str>> for DataAccessError<R> {
-    fn from(err: ErrorContext<FromUtf16Error, &'static str>) -> DataAccessError<R> {
+impl From<ErrorContext<FromUtf16Error, &'static str>> for DataAccessError {
+    fn from(err: ErrorContext<FromUtf16Error, &'static str>) -> DataAccessError {
         DataAccessError::FromUtf16Error(err.error, err.context)
     }
 }
 
 #[cfg(feature = "serde_json")]
-impl<R> From<serde_json::Error> for DataAccessError<R> {
-    fn from(err: serde_json::Error) -> DataAccessError<R> {
+impl From<serde_json::Error> for DataAccessError {
+    fn from(err: serde_json::Error) -> DataAccessError {
         DataAccessError::JsonError(err)
     }
 }
@@ -305,22 +277,16 @@ pub type EnvironmentV3 = Environment<Version3>;
 pub type Schema = Vec<ColumnDescriptor>;
 
 /// Iterate rows converting them to given value type
-pub struct Rows<'h, 'c, V, S>
-where
-    V: TryFromRow,
-{
+pub struct Rows<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
     odbc_schema: Vec<ColumnDescriptor>,
-    schema: V::Schema,
+    column_names: Vec<String>,
     columns: i16,
     utf_16_strings: bool,
     phantom: PhantomData<&'h V>,
 }
 
-impl<'h, 'c, V, S> Drop for Rows<'h, 'c, V, S>
-where
-    V: TryFromRow,
-{
+impl<'h, 'c, V, S> Drop for Rows<'h, 'c, V, S> {
     fn drop(&mut self) {
         // We need to make sure statement is dropped; implementing Drop forces use of drop(row_iter) if not consumed before another query
         // Should Statement not impl Drop itself?
@@ -335,7 +301,7 @@ enum ExecutedStatement<'c, S> {
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Rows<'h, 'c, V, S>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     fn from_result(
         _handle: &'h Handle<'c, 'o>,
@@ -343,7 +309,7 @@ where
         utf_16_strings: bool,
     ) -> Result<
         Rows<'h, 'c, V, S>,
-        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+        QueryError,
     > {
         let (odbc_schema, columns, statement) = match result {
             ResultSetState::Data(statement) => {
@@ -395,28 +361,27 @@ where
         }
 
         // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
-        let schema =
-            V::Schema::try_from_schema(&odbc_schema).map_err(QueryError::FromSchemaError)?;
+        let column_names = odbc_schema.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
 
         Ok(Rows {
             statement: Some(statement),
             odbc_schema,
-            schema,
+            column_names,
             columns,
             phantom: PhantomData,
             utf_16_strings,
         })
     }
 
-    pub fn schema(&self) -> &V::Schema {
-        &self.schema
+    pub fn column_names(&self) -> &[String] {
+        self.column_names.as_slice()
     }
 
     pub fn columns(&self) -> i16 {
         self.columns
     }
 
-    pub fn single(mut self) -> Result<V, DataAccessError<V::Error>> {
+    pub fn single(mut self) -> Result<V, DataAccessError> {
         let value = self.next().ok_or(DataAccessError::UnexpectedNumberOfRows(
             "expected single row but got no rows",
         ))?;
@@ -428,13 +393,13 @@ where
         value
     }
 
-    pub fn first(mut self) -> Result<V, DataAccessError<V::Error>> {
+    pub fn first(mut self) -> Result<V, DataAccessError> {
         self.next().ok_or(DataAccessError::UnexpectedNumberOfRows(
             "expected at least one row but got no rows",
         ))?
     }
 
-    pub fn no_result(mut self) -> Result<(), DataAccessError<V::Error>> {
+    pub fn no_result(mut self) -> Result<(), DataAccessError> {
         if self.next().is_some() {
             return Err(DataAccessError::UnexpectedNumberOfRows(
                 "exepcted no rows but got at least one",
@@ -446,7 +411,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Prepared>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
         match self.statement.take().unwrap() {
@@ -474,7 +439,7 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V> Rows<'h, 'c, V, Executed>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
     pub fn close(mut self) -> Result<(), OdbcError> {
         if let ExecutedStatement::HasResult(statement) = self.statement.take().unwrap() {
@@ -504,9 +469,9 @@ where
 
 impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for Rows<'h, 'c, V, S>
 where
-    V: TryFromRow,
+    V: TryFromValueRow,
 {
-    type Item = Result<V, DataAccessError<V::Error>>;
+    type Item = Result<V, DataAccessError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use odbc::ffi::SqlDataType::*;
@@ -625,7 +590,7 @@ where
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| TryFromRow::try_from_row(v, &self.schema).map_err(DataAccessError::FromRowError)))
+        .map(|v| v.and_then(|v| TryFromValueRow::try_from_row(v, self.column_names()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))))
     }
 }
 
@@ -762,10 +727,10 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         table_type: Option<&'i str>,
     ) -> Result<
         Rows<'h, 'c, V, Executed>,
-        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+        QueryError,
     >
     where
-        V: TryFromRow,
+       V: TryFromValueRow,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -799,10 +764,10 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         query: &str,
     ) -> Result<
         Rows<'h, 'c, V, Executed>,
-        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+        QueryError,
     >
     where
-        V: TryFromRow,
+       V: TryFromValueRow,
     {
         self.query_with_parameters(query, |b| Ok(b))
     }
@@ -813,10 +778,10 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         bind: F,
     ) -> Result<
         Rows<'h, 'c, V, Executed>,
-        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+        QueryError,
     >
     where
-        V: TryFromRow,
+       V: TryFromValueRow,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -837,10 +802,10 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         statement: PreparedStatement<'c>,
     ) -> Result<
         Rows<'h, 'c, V, Prepared>,
-        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+        QueryError,
     >
     where
-        V: TryFromRow,
+       V: TryFromValueRow,
     {
         self.execute_with_parameters(statement, |b| Ok(b))
     }
@@ -851,10 +816,10 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         bind: F,
     ) -> Result<
         Rows<'h, 'c, V, Prepared>,
-        QueryError<V::Error, <<V as TryFromRow>::Schema as TryFromSchema>::Error>,
+        QueryError,
     >
     where
-        V: TryFromRow,
+       V: TryFromValueRow,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();
@@ -868,24 +833,24 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         )
     }
 
-    pub fn start_transaction(&mut self) -> Result<(), QueryError<TryFromValueError, Infallible>> {
+    pub fn start_transaction(&mut self) -> Result<(), QueryError> {
         self.query::<()>("START TRANSACTION")?.no_result().unwrap();
         Ok(())
     }
 
-    pub fn commit(&mut self) -> Result<(), QueryError<TryFromValueError, Infallible>> {
+    pub fn commit(&mut self) -> Result<(), QueryError> {
         self.query::<()>("COMMIT")?.no_result().unwrap();
         Ok(())
     }
 
-    pub fn rollback(&mut self) -> Result<(), QueryError<TryFromValueError, Infallible>> {
+    pub fn rollback(&mut self) -> Result<(), QueryError> {
         self.query::<()>("ROLLBACK")?.no_result().unwrap();
         Ok(())
     }
 
     /// Call function in transaction.
     /// If function returns Err the transaction will be rolled back otherwise committed.
-    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> Result<O, E>) -> Result<Result<O, E>, QueryError<TryFromValueError, Infallible>> {
+    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> Result<O, E>) -> Result<Result<O, E>, QueryError> {
         self.start_transaction()?;
         Ok(match f(self) {
             ok @ Ok(_) => {
@@ -901,7 +866,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
 
     /// Commit current transaction, run function and start new one.
     /// This is useful when you need to do changes with auto-commit for example for schema while in transaction already.
-    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> O) -> Result<O, QueryError<TryFromValueError, Infallible>> {
+    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> O) -> Result<O, QueryError> {
         self.commit()?;
         let ret = f(self);
         self.start_transaction()?;
@@ -911,7 +876,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     pub fn query_multiple<'q: 'h>(
         &'h mut self,
         queries: &'q str,
-    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError<Infallible, Infallible>>>
+    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError>>
                  + Captures<'q>
                  + Captures2<'h>
                  + Captures3<'c>
@@ -922,7 +887,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
                 .and_then(|query| self.query(query))
                 .and_then(|rows| {
                     rows.collect::<Result<Vec<_>, _>>()
-                        .map_err(Into::into)
+                        .map_err(|err| err.into_query_error())
                 })
         })
     }
