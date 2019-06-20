@@ -58,15 +58,9 @@ pub trait Captures4<'a> {}
 impl<'a, T: ?Sized> Captures4<'a> for T {}
 
 /// General ODBC initialization and connection errors
-/// Note: You can convert OdbcError to QueryError with Into::into or .into_query_error()
+/// Note: You can convert OdbcError to QueryError with Into::into
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
-
-impl OdbcError {
-    pub fn into_query_error(self) -> QueryError {
-        QueryError::from(self)
-    }
-}
 
 impl fmt::Display for OdbcError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -153,7 +147,7 @@ impl From<DataAccessError> for QueryError {
 }
 
 /// Errors related to data access to query results
-/// Note: You can convert DataAccessError to QueryError with Into::into or .into_query_error()
+/// Note: You can convert DataAccessError to QueryError with Into::into
 #[derive(Debug)]
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
@@ -163,12 +157,6 @@ pub enum DataAccessError {
     UnexpectedNumberOfRows(&'static str),
     #[cfg(feature = "serde_json")]
     JsonError(serde_json::Error),
-}
-
-impl DataAccessError {
-    pub fn into_query_error(self) -> QueryError {
-        QueryError::from(self)
-    }
 }
 
 impl fmt::Display for DataAccessError {
@@ -913,7 +901,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
                 .and_then(|query| self.query(query).map_err(Into::into))
                 .and_then(|rows| {
                     rows.collect::<Result<Vec<_>, _>>()
-                        .map_err(|err| err.into_query_error().into())
+                        .map_err(|err| QueryError::from(err).into())
                 })
         })
     }
