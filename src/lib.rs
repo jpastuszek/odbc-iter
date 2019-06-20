@@ -20,7 +20,6 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 // ResultSet can be parametrized with this types
 pub use odbc::{Executed, Prepared};
 
-pub mod schema_access;
 mod value;
 pub use value::{Value, NullableValue, AsNullable};
 mod value_row;
