@@ -101,7 +101,6 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
 pub enum QueryError {
     OdbcError(OdbcError),
     BindError(DiagnosticRecord),
-    MultipleQueriesError(SplitQueriesError),
     DataAccessError(DataAccessError),
 }
 
@@ -112,7 +111,6 @@ impl fmt::Display for QueryError {
             QueryError::BindError(_) => {
                 write!(f, "ODBC call failed while binding parameter to statement")
             }
-            QueryError::MultipleQueriesError(_) => write!(f, "failed to execute multiple queries"),
             QueryError::DataAccessError(_) => {
                 write!(f, "failed to access result data")
             }
@@ -125,7 +123,6 @@ impl Error for QueryError {
         match self {
             QueryError::OdbcError(err) => err.source(),
             QueryError::BindError(err) => Some(err),
-            QueryError::MultipleQueriesError(err) => Some(err),
             QueryError::DataAccessError(err) => Some(err),
         }
     }
@@ -140,12 +137,6 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError {
 impl From<BindError> for QueryError {
     fn from(err: BindError) -> QueryError {
         QueryError::BindError(err.0)
-    }
-}
-
-impl From<SplitQueriesError> for QueryError {
-    fn from(err: SplitQueriesError) -> QueryError {
-        QueryError::MultipleQueriesError(err)
     }
 }
 
@@ -269,6 +260,42 @@ impl Error for BindError {
 impl From<DiagnosticRecord> for BindError {
     fn from(err: DiagnosticRecord) -> BindError {
         BindError(err)
+    }
+}
+
+#[derive(Debug)]
+pub enum QueryMultipleError {
+    SplitQueriesError(SplitQueriesError),
+    QueryError(QueryError),
+}
+
+impl fmt::Display for QueryMultipleError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QueryMultipleError::SplitQueriesError(_) => write!(f, "failed to prepare queires for execution"),
+            QueryMultipleError::QueryError(_) => write!(f, "error while executing one of multiple queries"),
+        }
+    }
+}
+
+impl Error for QueryMultipleError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            QueryMultipleError::SplitQueriesError(err) => Some(err),
+            QueryMultipleError::QueryError(err) => Some(err),
+        }
+    }
+}
+
+impl From<SplitQueriesError> for QueryMultipleError {
+    fn from(err: SplitQueriesError) -> QueryMultipleError {
+        QueryMultipleError::SplitQueriesError(err)
+    }
+}
+
+impl From<QueryError> for QueryMultipleError {
+    fn from(err: QueryError) -> QueryMultipleError {
+        QueryMultipleError::QueryError(err)
     }
 }
 
@@ -875,7 +902,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
     pub fn query_multiple<'q: 'h>(
         &'h mut self,
         queries: &'q str,
-    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryError>>
+    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryMultipleError>>
                  + Captures<'q>
                  + Captures2<'h>
                  + Captures3<'c>
@@ -883,10 +910,10 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         split_queries(queries).map(move |query| {
             query
                 .map_err(Into::into)
-                .and_then(|query| self.query(query))
+                .and_then(|query| self.query(query).map_err(Into::into))
                 .and_then(|rows| {
                     rows.collect::<Result<Vec<_>, _>>()
-                        .map_err(|err| err.into_query_error())
+                        .map_err(|err| err.into_query_error().into())
                 })
         })
     }
@@ -1689,6 +1716,25 @@ SELECT *;
 
         assert_matches!(data[0][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 42));
         assert_matches!(data[1][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 24));
+        assert_matches!(data[2][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_monetdb_multiple_queries() {
+        let odbc = Odbc::new().expect("open ODBC");
+        let mut monetdb = odbc
+            .connect(monetdb_connection_string().as_str())
+            .expect("connect to MonetDB");
+
+        let data = monetdb
+            .handle()
+            .query_multiple("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
+            .flat_map(|i| i.expect("failed to run query"))
+            .collect::<Vec<_>>();
+
+        assert_matches!(data[0][0], Some(Value::Tinyint(ref number)) => assert_eq!(*number, 42));
+        assert_matches!(data[1][0], Some(Value::Tinyint(ref number)) => assert_eq!(*number, 24));
         assert_matches!(data[2][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
     }
 }
