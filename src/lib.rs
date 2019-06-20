@@ -29,7 +29,7 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
-/// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
+/// * Need better approach to thread safety
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
@@ -926,6 +926,24 @@ pub mod tests {
         std::env::var("SQL_SERVER_ODBC_CONNECTION").expect("SQL_SERVER_ODBC_CONNECTION not set")
     }
 
+    #[cfg(feature = "test-sql-server")]
+    mod lock {
+        use lazy_static::lazy_static;
+        use std::sync::Mutex;
+
+        lazy_static! {
+            static ref SQL_SERVER_CONNECTION_LOCK: Mutex<()> = Mutex::new(());
+        }
+
+        // SQL Server driver crashes if multiple threads trying to connect at the same time
+        pub fn with_sql_server_connection_lock<O>(f: impl Fn() -> O) -> O {
+            let lock = SQL_SERVER_CONNECTION_LOCK.lock().unwrap();
+            let ret = f();
+            drop(lock);
+            ret
+        }
+    }
+
     #[cfg(feature = "test-hive")]
     pub fn hive_connection_string() -> String {
         std::env::var("HIVE_ODBC_CONNECTION").expect("HIVE_ODBC_CONNECTION not set")
@@ -1037,11 +1055,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_types_string() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to Hive");
+            .expect("connect to SQL Server"));
 
-        let data = hive.handle()
+        let data = connection.handle()
             .query::<ValueRow>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1057,11 +1075,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_types_string_empty() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to Hive");
+            .expect("connect to SQL Server"));
 
-        let data = hive.handle()
+        let data = connection.handle()
             .query::<ValueRow>("SELECT '', cast('' AS NVARCHAR), cast('' AS TEXT), cast('' AS NTEXT);")
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
@@ -1158,11 +1176,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_tables() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to Hive");
+            .expect("connect to SQL Server"));
 
-        let data = sql_server
+        let data = connection
             .handle()
             .tables::<ValueRow>("master", Some("sys"), None, Some("view"))
             .expect("failed to run query")
@@ -1176,11 +1194,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_date() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to Hive");
+            .expect("connect to SQL Server"));
 
-        let data = sql_server
+        let data = connection
             .handle()
             .query::<ValueRow>("SELECT cast('2018-08-24' AS DATE) AS date")
             .expect("failed to run query")
@@ -1194,11 +1212,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_time() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
-        let data = sql_server
+        let data = connection
             .handle()
             .query::<ValueRow>("SELECT cast('10:22:33.7654321' AS TIME) AS date")
             .expect("failed to run query")
@@ -1212,11 +1230,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_affected_rows_query() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
-        let mut db = sql_server.handle();
+        let mut db = connection.handle();
 
         let data = db
             .query::<ValueRow>("SELECT 1 UNION SELECT 2")
@@ -1238,11 +1256,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_affected_rows_prepared() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
-        let mut db = sql_server.handle();
+        let mut db = connection.handle();
 
         let data = db
             .query::<ValueRow>("SELECT 1 UNION SELECT 2")
@@ -1267,13 +1285,13 @@ pub mod tests {
     #[test]
     fn test_sql_server_query_with_parameters() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
         let val = 42;
 
-        let value: Value = db
+        let value: Value = connection
             .handle()
             .query_with_parameters("SELECT ? AS val;", |q| q.bind(&val))
             .expect("failed to run query")
@@ -1287,13 +1305,13 @@ pub mod tests {
     #[test]
     fn test_sql_server_query_with_many_parameters() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
         let val = [42, 24, 32, 666];
 
-        let data: Vec<ValueRow> = db
+        let data: Vec<ValueRow> = connection
             .handle()
             .query_with_parameters("SELECT ?, ?, ?, ? AS val;", |q| {
                 val.iter().fold(Ok(q), |q, v| q.and_then(|q| q.bind(v)))
@@ -1312,13 +1330,13 @@ pub mod tests {
     #[test]
     fn test_sql_server_query_with_many_parameters_prepared() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
         let val = [42, 24, 32, 666];
 
-        let mut handle = db.handle();
+        let mut handle = connection.handle();
 
         let statement = handle
             .prepare("SELECT ?, ?, ?, ? AS val;")
@@ -1342,11 +1360,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_prepared_columns() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
-        let statement = db
+        let statement = connection
             .handle()
             .prepare("SELECT ?, ?, ?, ? AS val;")
             .expect("prepare statement");
@@ -1358,11 +1376,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_prepared_schema() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
-        let statement = db
+        let statement = connection
             .handle()
             .prepare("SELECT ?, CAST(? as INTEGER) as foo, ?, ? AS val;")
             .expect("prepare statement");
@@ -1395,11 +1413,11 @@ pub mod tests {
     #[test]
     fn test_sql_server_long_string_fetch_utf_8() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
-        let data = sql_server
+        let data = connection
             .handle()
             .query::<ValueRow>(&format!("SELECT N'{}'", LONG_STRING))
             .expect("failed to run query")
@@ -1449,18 +1467,18 @@ pub mod tests {
     #[test]
     fn test_sql_server_long_string_fetch_utf_16_bind() {
         let odbc = Odbc::new().expect("open ODBC");
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect_with_options(
                 sql_server_connection_string().as_str(),
                 Options {
                     utf_16_strings: true,
                 },
             )
-            .expect("connect to SQL Server");
+            .expect("connect to SQL Server"));
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
 
-        let mut handle = sql_server.handle();
+        let mut handle = connection.handle();
 
         let statement = handle
             .prepare("SELECT ? AS val;")
@@ -1673,19 +1691,20 @@ SELECT *;
         let odbc = Odbc::new().expect("open ODBC");
         assert_eq!(format!("{:?}", odbc), "Odbc { version: 3 }");
 
-        let mut sql_server = odbc
+        let mut connection = lock::with_sql_server_connection_lock(|| odbc
             .connect_with_options(
                 sql_server_connection_string().as_str(),
                 Options {
                     utf_16_strings: true,
                 },
             )
-            .expect("connect to SQL Server");
-        assert_eq!(format!("{:?}", sql_server), "Connection { utf_16_strings: true }");
+            .expect("connect to SQL Server"));
+
+        assert_eq!(format!("{:?}", connection), "Connection { utf_16_strings: true }");
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
 
-        let mut handle = sql_server.handle();
+        let mut handle = connection.handle();
         assert_eq!(format!("{:?}", handle), "Handle(Connection { utf_16_strings: true })");
 
         let statement = handle
