@@ -1,5 +1,6 @@
 use crate::*;
 
+#[derive(Debug)]
 pub struct SchemaAccess<'v> {
     value: ValueRow,
     schema: &'v Schema,

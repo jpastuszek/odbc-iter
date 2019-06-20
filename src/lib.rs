@@ -30,7 +30,6 @@ mod odbc_type;
 pub use odbc_type::*;
 
 /// TODO
-/// * impl Debug on all structs
 /// * Looks like tests needs some global lock as I get spurious connection error/SEGV on SQL Server tests
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
@@ -248,6 +247,17 @@ pub struct ResultSet<'h, 'c, V, S> {
     columns: i16,
     utf_16_strings: bool,
     phantom: PhantomData<&'h V>,
+}
+
+impl<'h, 'c, V, S> fmt::Debug for ResultSet<'h, 'c, V, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ResultSet")
+            .field("odbc_schema", &self.odbc_schema)
+            .field("column_names", &self.column_names)
+            .field("columns", &self.columns)
+            .field("utf_16_strings", &self.utf_16_strings)
+            .finish()
+    }
 }
 
 impl<'h, 'c, V, S> Drop for ResultSet<'h, 'c, V, S> {
@@ -563,6 +573,14 @@ pub struct Binder<'h, 't, S> {
     index: u16,
 }
 
+impl<S> fmt::Debug for Binder<'_, '_, S> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("Binder")
+           .field("index", &self.index)
+           .finish()
+    }
+}
+
 impl<'h, 't, S> Binder<'h, 't, S> {
     pub fn bind<'new_t, T>(self, value: &'new_t T) -> Result<Binder<'h, 'new_t, S>, BindError>
     where
@@ -600,6 +618,20 @@ pub struct Options {
 /// Wrapper around ODBC prepared statement
 pub struct PreparedStatement<'h>(Statement<'h, 'h, odbc::Prepared, odbc::NoResult>);
 
+impl<'h> fmt::Debug for PreparedStatement<'h> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut d = f.debug_struct("PreparedStatement");
+
+        let schema = (1..(self.0.num_result_cols().map_err(|_| std::fmt::Error)? + 1)).into_iter()
+            .map(|i| self.0.describe_col(i as u16))
+            .collect::<Result<Vec<ColumnDescriptor>, _>>()
+            .map_err(|_| std::fmt::Error)?;
+
+        d.field("odbc_schema", &schema);
+        d.finish()
+    }
+}
+
 impl<'h> PreparedStatement<'h> {
     pub fn columns(&self) -> Result<i16, OdbcError> {
         Ok(self
@@ -618,6 +650,14 @@ impl<'h> PreparedStatement<'h> {
 
 pub struct Odbc {
     environment: EnvironmentV3,
+}
+
+impl fmt::Debug for Odbc {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("Odbc")
+           .field("version", &3)
+           .finish()
+    }
 }
 
 impl Odbc {
@@ -667,7 +707,16 @@ pub struct Connection<'o> {
     utf_16_strings: bool,
 }
 
+impl fmt::Debug for Connection<'_> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("Connection")
+           .field("utf_16_strings", &self.utf_16_strings)
+           .finish()
+    }
+}
+
 /// Handle ensures that query results are consumed before next query can be performed
+#[derive(Debug)]
 pub struct Handle<'c, 'o>(&'c Connection<'o>);
 
 impl<'c, 'o: 'c> Connection<'o> {
@@ -1617,5 +1666,45 @@ SELECT *;
             .collect::<Result<Vec<_>, _>>()
             .expect("failed to parse");
         assert_eq!(queries, ["SELECT 1;", "SELECT 2;", "SELECT 3;"]);
+    }
+
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_debug() {
+        let odbc = Odbc::new().expect("open ODBC");
+        assert_eq!(format!("{:?}", odbc), "Odbc { version: 3 }");
+
+        let mut sql_server = odbc
+            .connect_with_options(
+                sql_server_connection_string().as_str(),
+                Options {
+                    utf_16_strings: true,
+                },
+            )
+            .expect("connect to SQL Server");
+        assert_eq!(format!("{:?}", sql_server), "Connection { utf_16_strings: true }");
+
+        let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
+
+        let mut handle = sql_server.handle();
+        assert_eq!(format!("{:?}", handle), "Handle(Connection { utf_16_strings: true })");
+
+        let statement = handle
+            .prepare("SELECT ? AS foo, ? AS bar, ? AS baz;")
+            .expect("prepare statement");
+
+        assert_eq!(format!("{:?}", statement), "PreparedStatement { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_VARCHAR, column_size: Some(4000), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_VARCHAR, column_size: Some(4000), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_VARCHAR, column_size: Some(4000), decimal_digits: None, nullable: Some(true) }] }");
+
+        let result_set = handle
+            .execute_with_parameters::<ValueRow, _>(statement, |q| {
+                let q = q.bind(&utf_16_string)?;
+                assert_eq!(format!("{:?}", q), "Binder { index: 1 }");
+                q
+                    .bind(&12)?
+                    .bind(&true)
+            })
+            .expect("failed to run query");
+
+        assert_eq!(format!("{:?}", result_set), "ResultSet { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_EXT_WVARCHAR, column_size: Some(1200), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_INTEGER, column_size: Some(10), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_EXT_BIT, column_size: Some(1), decimal_digits: None, nullable: Some(true) }], column_names: [\"foo\", \"bar\", \"baz\"], columns: 3, utf_16_strings: true }");
     }
 }
