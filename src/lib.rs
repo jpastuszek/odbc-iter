@@ -26,7 +26,6 @@ pub use value::{Value, NullableValue, AsNullable};
 mod value_row;
 pub use value_row::{ValueRow, TryFromValueRow};
 pub mod thread_local;
-pub use thread_local::connection_with as thread_local_connection_with;
 mod odbc_type;
 pub use odbc_type::*;
 
