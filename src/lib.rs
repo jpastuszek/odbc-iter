@@ -43,19 +43,6 @@ pub use odbc_type::*;
 /// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
 /// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
 
-// https://github.com/rust-lang/rust/issues/49431
-pub trait Captures<'a> {}
-impl<'a, T: ?Sized> Captures<'a> for T {}
-
-pub trait Captures2<'a> {}
-impl<'a, T: ?Sized> Captures2<'a> for T {}
-
-pub trait Captures3<'a> {}
-impl<'a, T: ?Sized> Captures3<'a> for T {}
-
-pub trait Captures4<'a> {}
-impl<'a, T: ?Sized> Captures4<'a> for T {}
-
 /// General ODBC initialization and connection errors
 /// Note: You can convert OdbcError to QueryError with Into::into
 #[derive(Debug)]
@@ -247,42 +234,6 @@ impl Error for BindError {
 impl From<DiagnosticRecord> for BindError {
     fn from(err: DiagnosticRecord) -> BindError {
         BindError(err)
-    }
-}
-
-#[derive(Debug)]
-pub enum QueryMultipleError {
-    SplitQueriesError(SplitQueriesError),
-    QueryError(QueryError),
-}
-
-impl fmt::Display for QueryMultipleError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            QueryMultipleError::SplitQueriesError(_) => write!(f, "failed to prepare queires for execution"),
-            QueryMultipleError::QueryError(_) => write!(f, "error while executing one of multiple queries"),
-        }
-    }
-}
-
-impl Error for QueryMultipleError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            QueryMultipleError::SplitQueriesError(err) => Some(err),
-            QueryMultipleError::QueryError(err) => Some(err),
-        }
-    }
-}
-
-impl From<SplitQueriesError> for QueryMultipleError {
-    fn from(err: SplitQueriesError) -> QueryMultipleError {
-        QueryMultipleError::SplitQueriesError(err)
-    }
-}
-
-impl From<QueryError> for QueryMultipleError {
-    fn from(err: QueryError) -> QueryMultipleError {
-        QueryMultipleError::QueryError(err)
     }
 }
 
@@ -884,25 +835,6 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
         let ret = f(self);
         self.start_transaction()?;
         Ok(ret)
-    }
-
-    pub fn query_multiple<'q: 'h>(
-        &'h mut self,
-        queries: &'q str,
-    ) -> impl Iterator<Item = Result<Vec<ValueRow>, QueryMultipleError>>
-                 + Captures<'q>
-                 + Captures2<'h>
-                 + Captures3<'c>
-                 + Captures4<'o> {
-        split_queries(queries).map(move |query| {
-            query
-                .map_err(Into::into)
-                .and_then(|query| self.query(query).map_err(Into::into))
-                .and_then(|rows| {
-                    rows.collect::<Result<Vec<_>, _>>()
-                        .map_err(|err| QueryError::from(err).into())
-                })
-        })
     }
 }
 
@@ -1685,43 +1617,5 @@ SELECT *;
             .collect::<Result<Vec<_>, _>>()
             .expect("failed to parse");
         assert_eq!(queries, ["SELECT 1;", "SELECT 2;", "SELECT 3;"]);
-    }
-
-    #[cfg(feature = "test-hive")]
-    #[test]
-    fn test_hive_multiple_queries() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
-
-        let data = hive
-            .handle()
-            .query_multiple("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
-            .flat_map(|i| i.expect("failed to run query"))
-            .collect::<Vec<_>>();
-
-        assert_matches!(data[0][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 42));
-        assert_matches!(data[1][0], Some(Value::Integer(ref number)) => assert_eq!(*number, 24));
-        assert_matches!(data[2][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
-    }
-
-    #[cfg(feature = "test-monetdb")]
-    #[test]
-    fn test_monetdb_multiple_queries() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb = odbc
-            .connect(monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
-
-        let data = monetdb
-            .handle()
-            .query_multiple("SELECT 42;\nSELECT 24;\nSELECT 'foo';")
-            .flat_map(|i| i.expect("failed to run query"))
-            .collect::<Vec<_>>();
-
-        assert_matches!(data[0][0], Some(Value::Tinyint(ref number)) => assert_eq!(*number, 42));
-        assert_matches!(data[1][0], Some(Value::Tinyint(ref number)) => assert_eq!(*number, 24));
-        assert_matches!(data[2][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
     }
 }
