@@ -1,39 +1,44 @@
-use std::fmt;
-use std::error::Error;
+use crate::value::{TryFromValue, Value};
 use std::convert::Infallible;
-use crate::value::{Value, TryFromValue};
+use std::error::Error;
+use std::fmt;
 
 pub type ValueRow = Vec<Option<Value>>;
 
 /// This traits allow for convetion of ValueRow type used intarnally by ResultSet iterator to any
 /// other type returned as Item.
-/// 
+///
 /// Note: TryFrom/TryInto cannot be implemented since we need to own the trait
 
 /// Given column names convert from Row to other type of value
 pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
-    fn try_from_row<'n>(values: ValueRow, column_names: &'n[String]) -> Result<Self, Self::Error>;
+    fn try_from_row<'n>(values: ValueRow, column_names: &'n [String]) -> Result<Self, Self::Error>;
 }
 
 #[derive(Debug)]
 pub enum RowConvertError {
     UnexpectedNullValue(&'static str),
     UnexpectedValue,
-    UnexpectedNumberOfColumns {
-        expected: u16,
-        got: usize,
-    },
+    UnexpectedNumberOfColumns { expected: u16, got: usize },
     ValueConvertError(Box<dyn Error>),
 }
 
 impl fmt::Display for RowConvertError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RowConvertError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
+            RowConvertError::UnexpectedNullValue(t) => {
+                write!(f, "expecting value of type {} but got NULL", t)
+            }
             RowConvertError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
-            RowConvertError::UnexpectedNumberOfColumns { expected, got } => write!(f, "unexpected number of columns: expected {} but got {}", expected, got),
-            RowConvertError::ValueConvertError(_) => write!(f, "failed to convert column value to target type"),
+            RowConvertError::UnexpectedNumberOfColumns { expected, got } => write!(
+                f,
+                "unexpected number of columns: expected {} but got {}",
+                expected, got
+            ),
+            RowConvertError::ValueConvertError(_) => {
+                write!(f, "failed to convert column value to target type")
+            }
         }
     }
 }
@@ -41,9 +46,9 @@ impl fmt::Display for RowConvertError {
 impl Error for RowConvertError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            RowConvertError::UnexpectedNullValue(_) |
-            RowConvertError::UnexpectedValue |
-            RowConvertError::UnexpectedNumberOfColumns { .. } => None,
+            RowConvertError::UnexpectedNullValue(_)
+            | RowConvertError::UnexpectedValue
+            | RowConvertError::UnexpectedNumberOfColumns { .. } => None,
             RowConvertError::ValueConvertError(err) => Some(err.as_ref()),
         }
     }
@@ -51,44 +56,66 @@ impl Error for RowConvertError {
 
 impl TryFromValueRow for ValueRow {
     type Error = Infallible;
-    fn try_from_row<'n>(values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+    fn try_from_row<'n>(
+        values: ValueRow,
+        _column_names: &'n [String],
+    ) -> Result<Self, Self::Error> {
         Ok(values)
     }
 }
 
 impl TryFromValueRow for () {
     type Error = RowConvertError;
-    fn try_from_row<'n>(_values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+    fn try_from_row<'n>(
+        _values: ValueRow,
+        _column_names: &'n [String],
+    ) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
 
-impl<T> TryFromValueRow for T where T: TryFromValue {
+impl<T> TryFromValueRow for T
+where
+    T: TryFromValue,
+{
     type Error = RowConvertError;
-    fn try_from_row<'n>(mut values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+    fn try_from_row<'n>(
+        mut values: ValueRow,
+        _column_names: &'n [String],
+    ) -> Result<Self, Self::Error> {
         if values.len() != 1 {
-            return Err(RowConvertError::UnexpectedNumberOfColumns { expected: 1, got: values.len() })
+            return Err(RowConvertError::UnexpectedNumberOfColumns {
+                expected: 1,
+                got: values.len(),
+            });
         }
-        values.pop()
+        values
+            .pop()
             .ok_or_else(|| RowConvertError::UnexpectedNullValue("Value"))
-            .and_then(|v| TryFromValue::try_from_value(v).map_err(|e| RowConvertError::ValueConvertError(Box::new(e))))
+            .and_then(|v| {
+                TryFromValue::try_from_value(v)
+                    .map_err(|e| RowConvertError::ValueConvertError(Box::new(e)))
+            })
     }
 }
 
 #[derive(Debug)]
 pub enum RowConvertTupleError {
-    UnexpectedNumberOfColumns {
-        expected: u16,
-        tuple: &'static str,
-    },
+    UnexpectedNumberOfColumns { expected: u16, tuple: &'static str },
     ValueConvertError(Box<dyn Error>),
 }
 
 impl fmt::Display for RowConvertTupleError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RowConvertTupleError::UnexpectedNumberOfColumns { expected, tuple } => write!(f, "failed to convert row with {} columns to tuple {}", expected, tuple),
-            RowConvertTupleError::ValueConvertError(_) => write!(f, "failed to convert column value to target type"),
+            RowConvertTupleError::UnexpectedNumberOfColumns { expected, tuple } => write!(
+                f,
+                "failed to convert row with {} columns to tuple {}",
+                expected, tuple
+            ),
+            RowConvertTupleError::ValueConvertError(_) => {
+                write!(f, "failed to convert column value to target type")
+            }
         }
     }
 }
@@ -237,9 +264,9 @@ try_from_tuple! {
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
-    use crate::Odbc;
-    #[allow(unused_imports)]
     use super::*;
+    #[allow(unused_imports)]
+    use crate::Odbc;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
 
@@ -250,7 +277,10 @@ mod tests {
 
     impl TryFromValueRow for Foo {
         type Error = Infallible;
-        fn try_from_row<'n>(mut values: ValueRow, _column_names: &'n[String]) -> Result<Self, Self::Error> {
+        fn try_from_row<'n>(
+            mut values: ValueRow,
+            _column_names: &'n [String],
+        ) -> Result<Self, Self::Error> {
             Ok(values
                 .pop()
                 .map(|val| Foo {

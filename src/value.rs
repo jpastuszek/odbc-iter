@@ -1,9 +1,9 @@
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
-use std::fmt;
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
+use std::fmt;
 
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -327,7 +327,8 @@ impl From<NaiveTime> for Value {
 
 impl From<SqlTime> for Value {
     fn from(value: SqlTime) -> Value {
-        Value::Time(SqlSsTime2 { hour: value.hour,
+        Value::Time(SqlSsTime2 {
+            hour: value.hour,
             minute: value.minute,
             second: value.second,
             fraction: 0,
@@ -349,7 +350,7 @@ impl From<serde_json::Value> for Value {
 }
 
 impl fmt::Display for Value {
-     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Bit(ref b) => fmt::Display::fmt(b, f),
             Value::Tinyint(ref n) => fmt::Display::fmt(n, f),
@@ -359,7 +360,8 @@ impl fmt::Display for Value {
             Value::Float(ref n) => fmt::Display::fmt(n, f),
             Value::Double(ref n) => fmt::Display::fmt(n, f),
             Value::String(ref s) => fmt::Display::fmt(s, f),
-            Value::Timestamp(ref timestamp) => write!(f,
+            Value::Timestamp(ref timestamp) => write!(
+                f,
                 "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
                 timestamp.year,
                 timestamp.month,
@@ -367,21 +369,27 @@ impl fmt::Display for Value {
                 timestamp.hour,
                 timestamp.minute,
                 timestamp.second,
-                timestamp.fraction / 1_000_000),
-            Value::Date(ref date) => write!(f, 
-                "{:04}-{:02}-{:02}",
-                date.year, date.month, date.day),
-            Value::Time(ref time) => write!(f, 
+                timestamp.fraction / 1_000_000
+            ),
+            Value::Date(ref date) => {
+                write!(f, "{:04}-{:02}-{:02}", date.year, date.month, date.day)
+            }
+            Value::Time(ref time) => write!(
+                f,
                 "{:02}:{:02}:{:02}.{:03}",
-                time.hour, time.minute, time.second, time.fraction / 1_000_000),
+                time.hour,
+                time.minute,
+                time.second,
+                time.fraction / 1_000_000
+            ),
             #[cfg(feature = "serde_json")]
             Value::Json(ref json) => write!(f, "{}", json),
         }
-     }
+    }
 }
 
 impl fmt::Debug for Value {
-     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Bit(ref b) => f.debug_tuple("Bit").field(b).finish(),
             Value::Tinyint(ref n) => f.debug_tuple("Tinyint").field(n).finish(),
@@ -391,9 +399,18 @@ impl fmt::Debug for Value {
             Value::Float(ref n) => f.debug_tuple("Float").field(n).finish(),
             Value::Double(ref n) => f.debug_tuple("Double").field(n).finish(),
             Value::String(ref s) => f.debug_tuple("String").field(s).finish(),
-            timestamp @ Value::Timestamp(_) => f.debug_tuple("Timestamp").field(&format_args!("{}", timestamp)).finish(),
-            date @ Value::Date(_) => f.debug_tuple("Date").field(&format_args!("{}", date)).finish(),
-            time @ Value::Time(_) => f.debug_tuple("Time").field(&format_args!("{}", time)).finish(),
+            timestamp @ Value::Timestamp(_) => f
+                .debug_tuple("Timestamp")
+                .field(&format_args!("{}", timestamp))
+                .finish(),
+            date @ Value::Date(_) => f
+                .debug_tuple("Date")
+                .field(&format_args!("{}", date))
+                .finish(),
+            time @ Value::Time(_) => f
+                .debug_tuple("Time")
+                .field(&format_args!("{}", time))
+                .finish(),
             #[cfg(feature = "serde_json")]
             Value::Json(ref j) => f.debug_tuple("Json").field(j).finish(),
         }
@@ -404,12 +421,12 @@ impl fmt::Debug for Value {
 pub struct NullableValue<'i>(&'i Option<Value>, &'static str);
 
 impl<'i> fmt::Display for NullableValue<'i> {
-     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
             Some(ref v) => fmt::Display::fmt(v, f),
             None => write!(f, "{}", self.1),
         }
-     }
+    }
 }
 
 pub trait AsNullable {
@@ -447,9 +464,15 @@ pub enum ValueConvertError {
 impl fmt::Display for ValueConvertError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ValueConvertError::UnexpectedNullValue(t) => write!(f, "expecting value of type {} but got NULL", t),
-            ValueConvertError::UnexpectedType { expected, got } => write!(f, "expecting value of type {} but got {}", expected, got),
-            ValueConvertError::ValueOutOfRange { expected } => write!(f, "value is out of range for type {}", expected),
+            ValueConvertError::UnexpectedNullValue(t) => {
+                write!(f, "expecting value of type {} but got NULL", t)
+            }
+            ValueConvertError::UnexpectedType { expected, got } => {
+                write!(f, "expecting value of type {} but got {}", expected, got)
+            }
+            ValueConvertError::ValueOutOfRange { expected } => {
+                write!(f, "value is out of range for type {}", expected)
+            }
         }
     }
 }
@@ -475,18 +498,24 @@ macro_rules! try_from_value_copy {
         impl TryFromValue for $t {
             type Error = ValueConvertError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value = value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
-                value.$f().ok_or_else(|| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })
+                let value =
+                    value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
+                value.$f().ok_or_else(|| ValueConvertError::UnexpectedType {
+                    expected: stringify!($t),
+                    got: value.description(),
+                })
             }
         }
 
         impl TryFromValue for Option<$t> {
             type Error = ValueConvertError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
+                value
+                    .map(|value| TryFromValue::try_from_value(Some(value)))
+                    .transpose()
             }
         }
-    }
+    };
 }
 
 macro_rules! try_from_value_unsigned {
@@ -495,17 +524,23 @@ macro_rules! try_from_value_unsigned {
             type Error = ValueConvertError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
                 let value: $it = TryFromValue::try_from_value(value)?;
-                value.try_into().map_err(|_| ValueConvertError::ValueOutOfRange { expected: stringify!($t) })
+                value
+                    .try_into()
+                    .map_err(|_| ValueConvertError::ValueOutOfRange {
+                        expected: stringify!($t),
+                    })
             }
         }
 
         impl TryFromValue for Option<$t> {
             type Error = ValueConvertError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| TryFromValue::try_from_value(Some(value))).transpose()
+                value
+                    .map(|value| TryFromValue::try_from_value(Some(value)))
+                    .transpose()
             }
         }
-    }
+    };
 }
 
 macro_rules! try_from_value_owned {
@@ -513,18 +548,33 @@ macro_rules! try_from_value_owned {
         impl TryFromValue for $t {
             type Error = ValueConvertError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                let value = value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
-                value.$f().map_err(|value| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })
+                let value =
+                    value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
+                value
+                    .$f()
+                    .map_err(|value| ValueConvertError::UnexpectedType {
+                        expected: stringify!($t),
+                        got: value.description(),
+                    })
             }
         }
 
         impl TryFromValue for Option<$t> {
             type Error = ValueConvertError;
             fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error> {
-                value.map(|value| value.$f().map_err(|value| ValueConvertError::UnexpectedType { expected: stringify!($t), got: value.description() })).transpose()
+                value
+                    .map(|value| {
+                        value
+                            .$f()
+                            .map_err(|value| ValueConvertError::UnexpectedType {
+                                expected: stringify!($t),
+                                got: value.description(),
+                            })
+                    })
+                    .transpose()
             }
         }
-    }
+    };
 }
 
 try_from_value_copy![bool, to_bool];
@@ -548,8 +598,8 @@ try_from_value_copy![NaiveTime, to_naive_time];
 
 #[cfg(feature = "serde")]
 mod ser {
-    use serde::{self, Serialize};
     use super::*;
+    use serde::{self, Serialize};
 
     impl Serialize for Value {
         #[inline]
@@ -566,9 +616,9 @@ mod ser {
                 Value::Float(n) => serializer.serialize_f32(n),
                 Value::Double(n) => serializer.serialize_f64(n),
                 Value::String(ref s) => serializer.serialize_str(s),
-                ref value @ Value::Timestamp(_) | 
-                ref value @ Value::Date(_) |
-                ref value @ Value::Time(_) => serializer.serialize_str(&value.to_string()),
+                ref value @ Value::Timestamp(_)
+                | ref value @ Value::Date(_)
+                | ref value @ Value::Time(_) => serializer.serialize_str(&value.to_string()),
                 #[cfg(feature = "serde_json")]
                 Value::Json(ref j) => j.serialize(serializer),
             }
@@ -587,29 +637,67 @@ mod ser {
             assert_eq!(&serde_json::to_string(&Value::Integer(-1)).unwrap(), "-1");
             assert_eq!(&serde_json::to_string(&Value::Integer(22)).unwrap(), "22");
 
-            assert_eq!(&serde_json::to_string(&Value::Double(-1.1)).unwrap(), "-1.1");
-            assert_eq!(&serde_json::to_string(&Value::Double(33.22)).unwrap(), "33.22");
+            assert_eq!(
+                &serde_json::to_string(&Value::Double(-1.1)).unwrap(),
+                "-1.1"
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::Double(33.22)).unwrap(),
+                "33.22"
+            );
 
-            assert_eq!(&serde_json::to_string(&Value::String("foo".to_owned())).unwrap(), "\"foo\"");
-            assert_eq!(&serde_json::to_string(&Value::String("bar baz".to_owned())).unwrap(), "\"bar baz\"");
+            assert_eq!(
+                &serde_json::to_string(&Value::String("foo".to_owned())).unwrap(),
+                "\"foo\""
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::String("bar baz".to_owned())).unwrap(),
+                "\"bar baz\""
+            );
         }
 
         #[test]
         fn serialize_value_timestamp() {
-            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 7, 8).and_hms_milli(9, 10, 11, 23))).unwrap(), "\"2016-07-08 09:10:11.023\"");
-            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 12, 8).and_hms_milli(19, 1, 1, 0))).unwrap(), "\"2016-12-08 19:01:01.000\"");
+            assert_eq!(
+                &serde_json::to_string(&Value::from(
+                    NaiveDate::from_ymd(2016, 7, 8).and_hms_milli(9, 10, 11, 23)
+                ))
+                .unwrap(),
+                "\"2016-07-08 09:10:11.023\""
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::from(
+                    NaiveDate::from_ymd(2016, 12, 8).and_hms_milli(19, 1, 1, 0)
+                ))
+                .unwrap(),
+                "\"2016-12-08 19:01:01.000\""
+            );
         }
 
         #[test]
         fn serialize_value_date() {
-            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 7, 8))).unwrap(), "\"2016-07-08\"");
-            assert_eq!(&serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 12, 8))).unwrap(), "\"2016-12-08\"");
+            assert_eq!(
+                &serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 7, 8))).unwrap(),
+                "\"2016-07-08\""
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 12, 8))).unwrap(),
+                "\"2016-12-08\""
+            );
         }
 
         #[test]
         fn serialize_value_time() {
-            assert_eq!(&serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(9, 10, 11, 23))).unwrap(), "\"09:10:11.023\"");
-            assert_eq!(&serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(19, 1, 1, 0))).unwrap(), "\"19:01:01.000\"");
+            assert_eq!(
+                &serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(9, 10, 11, 23)))
+                    .unwrap(),
+                "\"09:10:11.023\""
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(19, 1, 1, 0)))
+                    .unwrap(),
+                "\"19:01:01.000\""
+            );
         }
     }
 }

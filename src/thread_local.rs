@@ -44,66 +44,9 @@ mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_connection_with() {
-        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
-            let mut monetdb = result.expect("connect to MonetDB");
-            let data = monetdb
-                .handle()
-                .query::<ValueRow>("SELECT 'foo'")
-                .expect("failed to run query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("fetch data");
-
-            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
-            (Some(monetdb), ())
-        })
-    }
-
-    #[cfg(feature = "test-monetdb")]
-    #[test]
-    fn test_connection_with_reconnect() {
-        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
-            let mut monetdb = result.expect("connect to MonetDB");
-            let data = monetdb
-                .handle()
-                .query::<ValueRow>("SELECT 'foo'")
-                .expect("failed to run query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("fetch data");
-
-            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
-            (None, ())
-        });
-
-        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
-            let mut monetdb = result.expect("connect to MonetDB");
-            let data = monetdb
-                .handle()
-                .query::<ValueRow>("SELECT 'foo'")
-                .expect("failed to run query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("fetch data");
-
-            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
-            (None, ())
-        })
-    }
-
-
-    #[cfg(feature = "test-monetdb")]
-    #[test]
-    fn test_connection_with_nested() {
-        connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
-            let mut monetdb = result.expect("connect to MonetDB");
-            let data = monetdb
-                .handle()
-                .query::<ValueRow>("SELECT 'foo'")
-                .expect("failed to run query")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("fetch data");
-
-            assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
-
-            connection_with(crate::tests::monetdb_connection_string().as_str(), |result| {
+        connection_with(
+            crate::tests::monetdb_connection_string().as_str(),
+            |result| {
                 let mut monetdb = result.expect("connect to MonetDB");
                 let data = monetdb
                     .handle()
@@ -114,9 +57,80 @@ mod tests {
 
                 assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
                 (Some(monetdb), ())
-            });
+            },
+        )
+    }
 
-            (Some(monetdb), ())
-        })
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_connection_with_reconnect() {
+        connection_with(
+            crate::tests::monetdb_connection_string().as_str(),
+            |result| {
+                let mut monetdb = result.expect("connect to MonetDB");
+                let data = monetdb
+                    .handle()
+                    .query::<ValueRow>("SELECT 'foo'")
+                    .expect("failed to run query")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("fetch data");
+
+                assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+                (None, ())
+            },
+        );
+
+        connection_with(
+            crate::tests::monetdb_connection_string().as_str(),
+            |result| {
+                let mut monetdb = result.expect("connect to MonetDB");
+                let data = monetdb
+                    .handle()
+                    .query::<ValueRow>("SELECT 'foo'")
+                    .expect("failed to run query")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("fetch data");
+
+                assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+                (None, ())
+            },
+        )
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    #[test]
+    fn test_connection_with_nested() {
+        connection_with(
+            crate::tests::monetdb_connection_string().as_str(),
+            |result| {
+                let mut monetdb = result.expect("connect to MonetDB");
+                let data = monetdb
+                    .handle()
+                    .query::<ValueRow>("SELECT 'foo'")
+                    .expect("failed to run query")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("fetch data");
+
+                assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+
+                connection_with(
+                    crate::tests::monetdb_connection_string().as_str(),
+                    |result| {
+                        let mut monetdb = result.expect("connect to MonetDB");
+                        let data = monetdb
+                            .handle()
+                            .query::<ValueRow>("SELECT 'foo'")
+                            .expect("failed to run query")
+                            .collect::<Result<Vec<_>, _>>()
+                            .expect("fetch data");
+
+                        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, "foo"));
+                        (Some(monetdb), ())
+                    },
+                );
+
+                (Some(monetdb), ())
+            },
+        )
     }
 }

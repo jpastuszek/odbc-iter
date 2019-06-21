@@ -2,8 +2,8 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment,
-    NoResult, ResultSetState, Statement, Version3,
+    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, NoResult,
+    ResultSetState, Statement, Version3,
 };
 use regex::Regex;
 use std::error::Error;
@@ -11,8 +11,8 @@ use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::string::FromUtf16Error;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic;
+use std::sync::atomic::AtomicBool;
 
 // Schema
 pub use odbc::ColumnDescriptor;
@@ -23,15 +23,14 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 pub use odbc::{Executed, Prepared};
 
 mod value;
-pub use value::{Value, NullableValue, AsNullable};
+pub use value::{AsNullable, NullableValue, Value};
 mod value_row;
-pub use value_row::{ValueRow, TryFromValueRow};
-pub mod thread_local;
+pub use value_row::{TryFromValueRow, ValueRow};
 mod odbc_type;
+pub mod thread_local;
 pub use odbc_type::*;
 
 /// TODO
-/// * Need better approach to thread safety
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
@@ -91,9 +90,7 @@ impl fmt::Display for QueryError {
             QueryError::BindError(_) => {
                 write!(f, "ODBC call failed while binding parameter to statement")
             }
-            QueryError::DataAccessError(_) => {
-                write!(f, "failed to access result data")
-            }
+            QueryError::DataAccessError(_) => write!(f, "failed to access result data"),
         }
     }
 }
@@ -282,10 +279,7 @@ where
         _handle: &'h Handle<'c>,
         result: ResultSetState<'c, '_, S>,
         utf_16_strings: bool,
-    ) -> Result<
-        ResultSet<'h, 'c, V, S>,
-        QueryError,
-    > {
+    ) -> Result<ResultSet<'h, 'c, V, S>, QueryError> {
         let (odbc_schema, columns, statement) = match result {
             ResultSetState::Data(statement) => {
                 let columns = statement
@@ -336,7 +330,10 @@ where
         }
 
         // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
-        let column_names = odbc_schema.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
+        let column_names = odbc_schema
+            .iter()
+            .map(|s| s.name.clone())
+            .collect::<Vec<_>>();
 
         Ok(ResultSet {
             statement: Some(statement),
@@ -577,8 +574,8 @@ pub struct Binder<'h, 't, S> {
 impl<S> fmt::Debug for Binder<'_, '_, S> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Binder")
-           .field("index", &self.index)
-           .finish()
+            .field("index", &self.index)
+            .finish()
     }
 }
 
@@ -623,7 +620,8 @@ impl<'h> fmt::Debug for PreparedStatement<'h> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut d = f.debug_struct("PreparedStatement");
 
-        let schema = (1..(self.0.num_result_cols().map_err(|_| std::fmt::Error)? + 1)).into_iter()
+        let schema = (1..(self.0.num_result_cols().map_err(|_| std::fmt::Error)? + 1))
+            .into_iter()
             .map(|i| self.0.describe_col(i as u16))
             .collect::<Result<Vec<ColumnDescriptor>, _>>()
             .map_err(|_| std::fmt::Error)?;
@@ -653,8 +651,8 @@ pub struct Odbc {
     environment: EnvironmentV3,
 }
 
-/// "The ODBC Specification indicates that an external application or process should use a single environment handle 
-/// that is shared by local threads. The threads share the environment handle by using it as a common resource 
+/// "The ODBC Specification indicates that an external application or process should use a single environment handle
+/// that is shared by local threads. The threads share the environment handle by using it as a common resource
 /// for allocating individual connection handles." (http://www.firstsql.com/ithread5.htm)
 /// lazy_static will make sure only one environment is initialized
 unsafe impl Sync for Odbc {}
@@ -668,9 +666,7 @@ static ODBC_INIT: AtomicBool = AtomicBool::new(false);
 
 impl fmt::Debug for Odbc {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("Odbc")
-           .field("version", &3)
-           .finish()
+        fmt.debug_struct("Odbc").field("version", &3).finish()
     }
 }
 
@@ -687,7 +683,7 @@ impl Odbc {
 
         ret
     }
-    
+
     pub fn initialize() {
         lazy_static::initialize(&ODBC);
     }
@@ -744,8 +740,8 @@ unsafe impl Send for Connection {}
 impl fmt::Debug for Connection {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Connection")
-           .field("utf_16_strings", &self.utf_16_strings)
-           .finish()
+            .field("utf_16_strings", &self.utf_16_strings)
+            .finish()
     }
 }
 
@@ -772,12 +768,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         schema: Option<&'i str>,
         table: Option<&'i str>,
         table_type: Option<&'i str>,
-    ) -> Result<
-        ResultSet<'h, 'c, V, Executed>,
-        QueryError,
-    >
+    ) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
-       V: TryFromValueRow,
+        V: TryFromValueRow,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -806,15 +799,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         Ok(PreparedStatement(statement))
     }
 
-    pub fn query<V>(
-        &'h mut self,
-        query: &str,
-    ) -> Result<
-        ResultSet<'h, 'c, V, Executed>,
-        QueryError,
-    >
+    pub fn query<V>(&'h mut self, query: &str) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
-       V: TryFromValueRow,
+        V: TryFromValueRow,
     {
         self.query_with_parameters(query, |b| Ok(b))
     }
@@ -823,12 +810,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         &'h mut self,
         query: &str,
         bind: F,
-    ) -> Result<
-        ResultSet<'h, 'c, V, Executed>,
-        QueryError,
-    >
+    ) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
-       V: TryFromValueRow,
+        V: TryFromValueRow,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -847,12 +831,9 @@ impl<'h, 'c: 'h> Handle<'c> {
     pub fn execute<V>(
         &'h mut self,
         statement: PreparedStatement<'c>,
-    ) -> Result<
-        ResultSet<'h, 'c, V, Prepared>,
-        QueryError,
-    >
+    ) -> Result<ResultSet<'h, 'c, V, Prepared>, QueryError>
     where
-       V: TryFromValueRow,
+        V: TryFromValueRow,
     {
         self.execute_with_parameters(statement, |b| Ok(b))
     }
@@ -861,12 +842,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         &'h mut self,
         statement: PreparedStatement<'c>,
         bind: F,
-    ) -> Result<
-        ResultSet<'h, 'c, V, Prepared>,
-        QueryError,
-    >
+    ) -> Result<ResultSet<'h, 'c, V, Prepared>, QueryError>
     where
-       V: TryFromValueRow,
+        V: TryFromValueRow,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();
@@ -897,7 +875,10 @@ impl<'h, 'c: 'h> Handle<'c> {
 
     /// Call function in transaction.
     /// If function returns Err the transaction will be rolled back otherwise committed.
-    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c>) -> Result<O, E>) -> Result<Result<O, E>, QueryError> {
+    pub fn in_transaction<O, E>(
+        &mut self,
+        f: impl FnOnce(&mut Handle<'c>) -> Result<O, E>,
+    ) -> Result<Result<O, E>, QueryError> {
         self.start_transaction()?;
         Ok(match f(self) {
             ok @ Ok(_) => {
@@ -913,7 +894,10 @@ impl<'h, 'c: 'h> Handle<'c> {
 
     /// Commit current transaction, run function and start new one.
     /// This is useful when you need to do changes with auto-commit for example for schema while in transaction already.
-    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c>) -> O) -> Result<O, QueryError> {
+    pub fn outside_of_transaction<O>(
+        &mut self,
+        f: impl FnOnce(&mut Handle<'c>) -> O,
+    ) -> Result<O, QueryError> {
         self.commit()?;
         let ret = f(self);
         self.start_transaction()?;
@@ -963,8 +947,7 @@ pub mod tests {
 
     #[cfg(feature = "test-sql-server")]
     pub fn connect_sql_server() -> Connection {
-        Odbc::connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server")
+        Odbc::connect(sql_server_connection_string().as_str()).expect("connect to SQL Server")
     }
 
     #[cfg(feature = "test-sql-server")]
@@ -980,8 +963,7 @@ pub mod tests {
 
     #[cfg(feature = "test-hive")]
     pub fn connect_hive() -> Connection {
-        Odbc::connect(hive_connection_string().as_str())
-            .expect("connect to Hive")
+        Odbc::connect(hive_connection_string().as_str()).expect("connect to Hive")
     }
 
     #[cfg(feature = "test-hive")]
@@ -997,8 +979,7 @@ pub mod tests {
 
     #[cfg(feature = "test-monetdb")]
     pub fn connect_monetdb() -> Connection {
-        Odbc::connect(monetdb_connection_string().as_str())
-            .expect("connect to MonetDB")
+        Odbc::connect(monetdb_connection_string().as_str()).expect("connect to MonetDB")
     }
 
     #[cfg(feature = "test-monetdb")]
@@ -1111,8 +1092,11 @@ pub mod tests {
     fn test_sql_server_types_string_empty() {
         let mut connection = connect_sql_server();
 
-        let data = connection.handle()
-            .query::<ValueRow>("SELECT '', cast('' AS NVARCHAR), cast('' AS TEXT), cast('' AS NTEXT);")
+        let data = connection
+            .handle()
+            .query::<ValueRow>(
+                "SELECT '', cast('' AS NVARCHAR), cast('' AS TEXT), cast('' AS NTEXT);",
+            )
             .expect("failed to run query")
             .collect::<Result<Vec<_>, _>>()
             .expect("fetch data");
@@ -1445,8 +1429,8 @@ pub mod tests {
     #[test]
     fn test_sql_server_long_string_fetch_utf_16_bind() {
         let mut connection = connect_sql_server_with_options(Options {
-                utf_16_strings: true,
-            });
+            utf_16_strings: true,
+        });
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
 
@@ -1469,8 +1453,8 @@ pub mod tests {
     #[test]
     fn test_hive_long_string_fetch_utf_16() {
         let mut hive = connect_hive_with_options(Options {
-                utf_16_strings: true,
-            });
+            utf_16_strings: true,
+        });
 
         let data = hive
             .handle()
@@ -1486,8 +1470,8 @@ pub mod tests {
     #[test]
     fn test_moentdb_long_string_fetch_utf_16() {
         let mut monetdb = connect_monetdb_with_options(Options {
-                utf_16_strings: true,
-            });
+            utf_16_strings: true,
+        });
 
         let data = monetdb
             .handle()
@@ -1649,15 +1633,21 @@ SELECT *;
     #[test]
     fn test_sql_server_debug() {
         let mut connection = connect_sql_server_with_options(Options {
-                utf_16_strings: true,
-            });
+            utf_16_strings: true,
+        });
 
-        assert_eq!(format!("{:?}", connection), "Connection { utf_16_strings: true }");
+        assert_eq!(
+            format!("{:?}", connection),
+            "Connection { utf_16_strings: true }"
+        );
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
 
         let mut handle = connection.handle();
-        assert_eq!(format!("{:?}", handle), "Handle(Connection { utf_16_strings: true })");
+        assert_eq!(
+            format!("{:?}", handle),
+            "Handle(Connection { utf_16_strings: true })"
+        );
 
         let statement = handle
             .prepare("SELECT ? AS foo, ? AS bar, ? AS baz;")
@@ -1669,9 +1659,7 @@ SELECT *;
             .execute_with_parameters::<ValueRow, _>(statement, |q| {
                 let q = q.bind(&utf_16_string)?;
                 assert_eq!(format!("{:?}", q), "Binder { index: 1 }");
-                q
-                    .bind(&12)?
-                    .bind(&true)
+                q.bind(&12)?.bind(&true)
             })
             .expect("failed to run query");
 
