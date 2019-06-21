@@ -265,10 +265,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_custom_type() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let foo: Foo = db
             .handle()
@@ -283,10 +280,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_single_value() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: Value = db
             .handle()
@@ -301,10 +295,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_single_nullable_value() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();;
 
         let value: Option<Value> = db
             .handle()
@@ -329,10 +320,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_value_row() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: ValueRow = db
             .handle()
@@ -349,10 +337,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_single_copy() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: bool = db
             .handle()
@@ -412,10 +397,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_single_unsigned() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: Option<u64> = db
             .handle()
@@ -431,10 +413,7 @@ mod tests {
     #[cfg(feature = "test-monetdb")]
     #[should_panic(expected = "ValueOutOfRange")]
     fn test_single_unsigned_err() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let _value: Option<u64> = db
             .handle()
@@ -447,10 +426,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_single_string() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: String = db
             .handle()
@@ -486,10 +462,7 @@ mod tests {
         use chrono::Datelike;
         use chrono::NaiveDate;
 
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: NaiveDate = db
             .handle()
@@ -526,10 +499,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_tuple_value() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut db = odbc
-            .connect(crate::tests::monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut db = crate::tests::connect_monetdb();
 
         let value: (String, i64, bool) = db
             .handle()

@@ -11,6 +11,8 @@ use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::string::FromUtf16Error;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic;
 
 // Schema
 pub use odbc::ColumnDescriptor;
@@ -272,12 +274,12 @@ enum ExecutedStatement<'c, S> {
     NoResult(odbc::Statement<'c, 'c, S, odbc::NoResult>),
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> ResultSet<'h, 'c, V, S>
+impl<'h, 'c: 'h, V, S> ResultSet<'h, 'c, V, S>
 where
     V: TryFromValueRow,
 {
     fn from_result(
-        _handle: &'h Handle<'c, 'o>,
+        _handle: &'h Handle<'c>,
         result: ResultSetState<'c, '_, S>,
         utf_16_strings: bool,
     ) -> Result<
@@ -382,7 +384,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> ResultSet<'h, 'c, V, Prepared>
+impl<'h, 'c: 'h, V> ResultSet<'h, 'c, V, Prepared>
 where
     V: TryFromValueRow,
 {
@@ -410,7 +412,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V> ResultSet<'h, 'c, V, Executed>
+impl<'h, 'c: 'h, V> ResultSet<'h, 'c, V, Executed>
 where
     V: TryFromValueRow,
 {
@@ -440,7 +442,7 @@ where
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c, V, S> Iterator for ResultSet<'h, 'c, V, S>
+impl<'h, 'c: 'h, V, S> Iterator for ResultSet<'h, 'c, V, S>
 where
     V: TryFromValueRow,
 {
@@ -651,6 +653,19 @@ pub struct Odbc {
     environment: EnvironmentV3,
 }
 
+/// "The ODBC Specification indicates that an external application or process should use a single environment handle 
+/// that is shared by local threads. The threads share the environment handle by using it as a common resource 
+/// for allocating individual connection handles." (http://www.firstsql.com/ithread5.htm)
+/// lazy_static will make sure only one environment is initialized
+unsafe impl Sync for Odbc {}
+
+lazy_static! {
+    static ref ODBC: Odbc = Odbc::new().expect("Failed to initialize ODBC environment");
+}
+
+/// We need to allow mutable environment to be used to list drivers but onlye one environment should exist at the same time
+static ODBC_INIT: AtomicBool = AtomicBool::new(false);
+
 impl fmt::Debug for Odbc {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Odbc")
@@ -660,24 +675,42 @@ impl fmt::Debug for Odbc {
 }
 
 impl Odbc {
-    pub fn new() -> Result<Odbc, OdbcError> {
-        odbc::create_environment_v3()
+    fn new() -> Result<Odbc, OdbcError> {
+        if ODBC_INIT.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
+            panic!("ODBC environment already initialised");
+        }
+
+        let ret = odbc::create_environment_v3()
             .wrap_error_while("creating v3 environment")
             .map_err(Into::into)
-            .map(|environment| Odbc { environment })
-    }
-}
+            .map(|environment| Odbc { environment });
 
-impl Odbc {
-    pub fn list_drivers(&mut self) -> Result<Vec<DriverInfo>, OdbcError> {
-        self.environment
+        ret
+    }
+    
+    pub fn initialize() {
+        lazy_static::initialize(&ODBC);
+    }
+
+    /// This will panic if ODBC was already initialised by `Odbc::connect()` or `Odbc::initialize()`
+    pub fn list_drivers() -> Result<Vec<DriverInfo>, OdbcError> {
+        // we need mutable access to environment
+        let mut odbc = Odbc::new()?;
+        let ret = odbc
+            .environment
             .drivers()
             .wrap_error_while("listing drivers")
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        // Drop Odbc after providing list of drivers so we can allocate static singleton
+        drop(odbc);
+        ODBC_INIT.store(false, atomic::Ordering::SeqCst);
+
+        ret
     }
 
-    pub fn connect(&self, connection_string: &str) -> Result<Connection, OdbcError> {
-        self.connect_with_options(
+    pub fn connect(connection_string: &str) -> Result<Connection, OdbcError> {
+        Self::connect_with_options(
             connection_string,
             Options {
                 utf_16_strings: false,
@@ -686,11 +719,10 @@ impl Odbc {
     }
 
     pub fn connect_with_options(
-        &self,
         connection_string: &str,
         options: Options,
     ) -> Result<Connection, OdbcError> {
-        self.environment
+        ODBC.environment
             .connect_with_connection_string(connection_string)
             .wrap_error_while("connecting to database")
             .map_err(Into::into)
@@ -701,12 +733,15 @@ impl Odbc {
     }
 }
 
-pub struct Connection<'o> {
-    connection: OdbcConnection<'o>,
+pub struct Connection {
+    connection: OdbcConnection<'static>,
     utf_16_strings: bool,
 }
 
-impl fmt::Debug for Connection<'_> {
+/// Assuming drivers support sending Connection between threads
+unsafe impl Send for Connection {}
+
+impl fmt::Debug for Connection {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Connection")
            .field("utf_16_strings", &self.utf_16_strings)
@@ -716,15 +751,15 @@ impl fmt::Debug for Connection<'_> {
 
 /// Handle ensures that query results are consumed before next query can be performed
 #[derive(Debug)]
-pub struct Handle<'c, 'o>(&'c Connection<'o>);
+pub struct Handle<'c>(&'c Connection);
 
-impl<'c, 'o: 'c> Connection<'o> {
-    pub fn handle(&'c mut self) -> Handle<'c, 'o> {
+impl<'c: 'c> Connection {
+    pub fn handle(&'c mut self) -> Handle<'c> {
         Handle(self)
     }
 }
 
-impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
+impl<'h, 'c: 'h> Handle<'c> {
     fn statement(&'h self) -> Result<Statement<'c, 'c, Allocated, NoResult>, OdbcError> {
         Statement::with_parent(&self.0.connection)
             .wrap_error_while("pairing statement with connection")
@@ -862,7 +897,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
 
     /// Call function in transaction.
     /// If function returns Err the transaction will be rolled back otherwise committed.
-    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> Result<O, E>) -> Result<Result<O, E>, QueryError> {
+    pub fn in_transaction<O, E>(&mut self, f: impl FnOnce(&mut Handle<'c>) -> Result<O, E>) -> Result<Result<O, E>, QueryError> {
         self.start_transaction()?;
         Ok(match f(self) {
             ok @ Ok(_) => {
@@ -878,7 +913,7 @@ impl<'h, 'c: 'h, 'o: 'c> Handle<'c, 'o> {
 
     /// Commit current transaction, run function and start new one.
     /// This is useful when you need to do changes with auto-commit for example for schema while in transaction already.
-    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c, 'o>) -> O) -> Result<O, QueryError> {
+    pub fn outside_of_transaction<O>(&mut self, f: impl FnOnce(&mut Handle<'c>) -> O) -> Result<O, QueryError> {
         self.commit()?;
         let ret = f(self);
         self.start_transaction()?;
@@ -927,21 +962,15 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-sql-server")]
-    mod lock {
-        use lazy_static::lazy_static;
-        use std::sync::Mutex;
+    pub fn connect_sql_server() -> Connection {
+        Odbc::connect(sql_server_connection_string().as_str())
+            .expect("connect to SQL Server")
+    }
 
-        lazy_static! {
-            static ref SQL_SERVER_CONNECTION_LOCK: Mutex<()> = Mutex::new(());
-        }
-
-        // SQL Server driver crashes if multiple threads trying to connect at the same time
-        pub fn with_sql_server_connection_lock<O>(f: impl Fn() -> O) -> O {
-            let lock = SQL_SERVER_CONNECTION_LOCK.lock().unwrap();
-            let ret = f();
-            drop(lock);
-            ret
-        }
+    #[cfg(feature = "test-sql-server")]
+    pub fn connect_sql_server_with_options(options: Options) -> Connection {
+        Odbc::connect_with_options(sql_server_connection_string().as_str(), options)
+            .expect("connect to SQL ServerMonetDB")
     }
 
     #[cfg(feature = "test-hive")]
@@ -949,18 +978,39 @@ pub mod tests {
         std::env::var("HIVE_ODBC_CONNECTION").expect("HIVE_ODBC_CONNECTION not set")
     }
 
+    #[cfg(feature = "test-hive")]
+    pub fn connect_hive() -> Connection {
+        Odbc::connect(hive_connection_string().as_str())
+            .expect("connect to Hive")
+    }
+
+    #[cfg(feature = "test-hive")]
+    pub fn connect_hive_with_options(options: Options) -> Connection {
+        Odbc::connect_with_options(hive_connection_string().as_str(), options)
+            .expect("connect to Hive")
+    }
+
     #[cfg(feature = "test-monetdb")]
     pub fn monetdb_connection_string() -> String {
         std::env::var("MONETDB_ODBC_CONNECTION").expect("MONETDB_ODBC_CONNECTION not set")
     }
 
+    #[cfg(feature = "test-monetdb")]
+    pub fn connect_monetdb() -> Connection {
+        Odbc::connect(monetdb_connection_string().as_str())
+            .expect("connect to MonetDB")
+    }
+
+    #[cfg(feature = "test-monetdb")]
+    pub fn connect_monetdb_with_options(options: Options) -> Connection {
+        Odbc::connect_with_options(monetdb_connection_string().as_str(), options)
+            .expect("connect to MonetDB")
+    }
+
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_multiple_rows() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -976,10 +1026,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_multiple_columns() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -995,10 +1042,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_integer() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive.handle()
             .query::<ValueRow>("SELECT cast(127 AS TINYINT), cast(32767 AS SMALLINT), cast(2147483647 AS INTEGER), cast(9223372036854775807 AS BIGINT);")
@@ -1015,10 +1059,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_boolean() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -1035,10 +1076,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_string() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -1054,10 +1092,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_types_string() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let data = connection.handle()
             .query::<ValueRow>("SELECT 'foo', cast('bar' AS NVARCHAR), cast('baz' AS TEXT), cast('quix' AS NTEXT);")
@@ -1074,10 +1109,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_types_string_empty() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let data = connection.handle()
             .query::<ValueRow>("SELECT '', cast('' AS NVARCHAR), cast('' AS TEXT), cast('' AS NTEXT);")
@@ -1094,10 +1126,7 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_string_empty() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb = odbc
-            .connect(monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut monetdb = crate::tests::connect_monetdb();;
 
         let data = monetdb
             .handle()
@@ -1112,10 +1141,7 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_json() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb = odbc
-            .connect(monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut monetdb = crate::tests::connect_monetdb();;
 
         let data = monetdb
             .handle()
@@ -1137,10 +1163,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_float() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -1156,10 +1179,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_types_null() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -1175,10 +1195,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_tables() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let data = connection
             .handle()
@@ -1193,10 +1210,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_date() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let data = connection
             .handle()
@@ -1211,10 +1225,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_time() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let data = connection
             .handle()
@@ -1229,10 +1240,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_affected_rows_query() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let mut db = connection.handle();
 
@@ -1255,10 +1263,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_affected_rows_prepared() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let mut db = connection.handle();
 
@@ -1284,10 +1289,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_query_with_parameters() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let val = 42;
 
@@ -1304,10 +1306,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_query_with_many_parameters() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let val = [42, 24, 32, 666];
 
@@ -1329,10 +1328,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_query_with_many_parameters_prepared() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let val = [42, 24, 32, 666];
 
@@ -1359,10 +1355,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_prepared_columns() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let statement = connection
             .handle()
@@ -1375,10 +1368,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_prepared_schema() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let statement = connection
             .handle()
@@ -1394,10 +1384,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_empty_data_set() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -1412,10 +1399,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_long_string_fetch_utf_8() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect(sql_server_connection_string().as_str())
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server();
 
         let data = connection
             .handle()
@@ -1430,10 +1414,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_long_string_fetch_utf_8() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect(hive_connection_string().as_str())
-            .expect("connect to Hive");
+        let mut hive = connect_hive();
 
         let data = hive
             .handle()
@@ -1448,10 +1429,7 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_long_string_fetch_utf_8() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb = odbc
-            .connect(monetdb_connection_string().as_str())
-            .expect("connect to MonetDB");
+        let mut monetdb = crate::tests::connect_monetdb();
 
         let data = monetdb
             .handle()
@@ -1466,15 +1444,9 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_long_string_fetch_utf_16_bind() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect_with_options(
-                sql_server_connection_string().as_str(),
-                Options {
-                    utf_16_strings: true,
-                },
-            )
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server_with_options(Options {
+                utf_16_strings: true,
+            });
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
 
@@ -1496,15 +1468,9 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_long_string_fetch_utf_16() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut hive = odbc
-            .connect_with_options(
-                hive_connection_string().as_str(),
-                Options {
-                    utf_16_strings: true,
-                },
-            )
-            .expect("connect to Hive");
+        let mut hive = connect_hive_with_options(Options {
+                utf_16_strings: true,
+            });
 
         let data = hive
             .handle()
@@ -1519,15 +1485,9 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_long_string_fetch_utf_16() {
-        let odbc = Odbc::new().expect("open ODBC");
-        let mut monetdb = odbc
-            .connect_with_options(
-                monetdb_connection_string().as_str(),
-                Options {
-                    utf_16_strings: true,
-                },
-            )
-            .expect("connect to MonetDB");
+        let mut monetdb = connect_monetdb_with_options(Options {
+                utf_16_strings: true,
+            });
 
         let data = monetdb
             .handle()
@@ -1688,17 +1648,9 @@ SELECT *;
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_debug() {
-        let odbc = Odbc::new().expect("open ODBC");
-        assert_eq!(format!("{:?}", odbc), "Odbc { version: 3 }");
-
-        let mut connection = lock::with_sql_server_connection_lock(|| odbc
-            .connect_with_options(
-                sql_server_connection_string().as_str(),
-                Options {
-                    utf_16_strings: true,
-                },
-            )
-            .expect("connect to SQL Server"));
+        let mut connection = connect_sql_server_with_options(Options {
+                utf_16_strings: true,
+            });
 
         assert_eq!(format!("{:?}", connection), "Connection { utf_16_strings: true }");
 
