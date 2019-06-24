@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use std::string::FromUtf16Error;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
+use std::convert::TryFrom;
 
 // Allow for custom OdbcType impl for binning
 pub use odbc::ffi;
@@ -29,7 +30,6 @@ pub mod thread_local;
 pub use odbc_type::*;
 
 /// TODO
-/// * don't panic on unsupported SQL value type
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
@@ -79,6 +79,7 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
 pub enum QueryError {
     OdbcError(OdbcError),
     BindError(DiagnosticRecord),
+    UnsupportedSqlDataType(UnsupportedSqlDataType),
     DataAccessError(DataAccessError),
 }
 
@@ -89,6 +90,7 @@ impl fmt::Display for QueryError {
             QueryError::BindError(_) => {
                 write!(f, "ODBC call failed while binding parameter to statement")
             }
+            QueryError::UnsupportedSqlDataType(_) => write!(f, "query schema has unsupported data type"),
             QueryError::DataAccessError(_) => write!(f, "failed to access result data"),
         }
     }
@@ -99,6 +101,7 @@ impl Error for QueryError {
         match self {
             QueryError::OdbcError(err) => err.source(),
             QueryError::BindError(err) => Some(err),
+            QueryError::UnsupportedSqlDataType(err) => Some(err),
             QueryError::DataAccessError(err) => Some(err),
         }
     }
@@ -113,6 +116,12 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for QueryError {
 impl From<BindError> for QueryError {
     fn from(err: BindError) -> QueryError {
         QueryError::BindError(err.0)
+    }
+}
+
+impl From<UnsupportedSqlDataType> for QueryError {
+    fn from(err: UnsupportedSqlDataType) -> QueryError {
+        QueryError::UnsupportedSqlDataType(err)
     }
 }
 
@@ -134,6 +143,7 @@ impl From<DataAccessError> for QueryError {
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
     OdbcCursorError(DiagnosticRecord),
+    UnsupportedSqlDataType(UnsupportedSqlDataType),
     FromRowError(Box<dyn Error>),
     FromUtf16Error(FromUtf16Error, &'static str),
     UnexpectedNumberOfRows(&'static str),
@@ -150,6 +160,7 @@ impl fmt::Display for DataAccessError {
             DataAccessError::OdbcCursorError(_) => {
                 write!(f, "failed to access data in ODBC cursor")
             }
+            DataAccessError::UnsupportedSqlDataType(_) => write!(f, "failed to handle data type conversion"),
             DataAccessError::FromRowError(_) => {
                 write!(f, "failed to convert table row to target type")
             }
@@ -174,6 +185,7 @@ impl Error for DataAccessError {
         match self {
             DataAccessError::OdbcError(err, _) => Some(err),
             DataAccessError::OdbcCursorError(err) => Some(err),
+            DataAccessError::UnsupportedSqlDataType(err) => Some(err),
             DataAccessError::FromRowError(err) => Some(err.as_ref()),
             DataAccessError::FromUtf16Error(err, _) => Some(err),
             DataAccessError::UnexpectedNumberOfRows(_) => None,
@@ -188,6 +200,12 @@ impl Error for DataAccessError {
 impl From<DiagnosticRecord> for DataAccessError {
     fn from(err: DiagnosticRecord) -> DataAccessError {
         DataAccessError::OdbcCursorError(err)
+    }
+}
+
+impl From<UnsupportedSqlDataType> for DataAccessError {
+    fn from(err: UnsupportedSqlDataType) -> DataAccessError {
+        DataAccessError::UnsupportedSqlDataType(err)
     }
 }
 
@@ -233,8 +251,21 @@ impl From<DiagnosticRecord> for BindError {
     }
 }
 
-impl From<ColumnDescriptor> for ColumnType {
-    fn from(column_descriptor: ColumnDescriptor) -> ColumnType {
+#[derive(Debug)]
+pub struct UnsupportedSqlDataType(ffi::SqlDataType);
+
+impl fmt::Display for UnsupportedSqlDataType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "unsupported SQL data type: {:?}", self.0)
+    }
+}
+
+impl Error for UnsupportedSqlDataType { }
+
+impl TryFrom<ColumnDescriptor> for ColumnType {
+    type Error = UnsupportedSqlDataType;
+
+    fn try_from(column_descriptor: ColumnDescriptor) -> Result<ColumnType, UnsupportedSqlDataType> {
         use odbc::ffi::SqlDataType::*;
         let value_type = match column_descriptor.data_type {
             SQL_EXT_BIT => ValueType::Bit,
@@ -261,17 +292,14 @@ impl From<ColumnDescriptor> for ColumnType {
                     ValueType::String
                 }
             }
-            _ => panic!(format!(
-                "got unimplemented SQL data type: {:?}",
-                column_descriptor.data_type
-            )),
+            _ => return Err(UnsupportedSqlDataType(column_descriptor.data_type)),
         };
 
-        ColumnType {
+        Ok(ColumnType {
             value_type,
             nullable: column_descriptor.nullable.unwrap_or(true),
             name: column_descriptor.name,
-        }
+        })
     }
 }
 
@@ -370,8 +398,8 @@ where
         // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
         let schema = odbc_schema
             .iter()
-            .map(|c| ColumnType::from(c.clone()))
-            .collect::<Vec<_>>();
+            .map(|c| ColumnType::try_from(c.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ResultSet {
             statement: Some(statement),
@@ -585,10 +613,7 @@ where
                                         Ok(None) => Ok(None)
                                     }?
                                 }
-                                _ => panic!(format!(
-                                    "got unimplemented SQL data type: {:?}",
-                                    column_descriptor.data_type
-                                )),
+                                _ => Err(UnsupportedSqlDataType(column_descriptor.data_type))?,
                             })
                         })
                         .collect::<Result<Vec<Option<Value>>, _>>(),
@@ -670,11 +695,14 @@ impl<'h> fmt::Debug for PreparedStatement<'h> {
 }
 
 impl<'h> PreparedStatement<'h> {
-    pub fn schema(&self) -> Result<Vec<ColumnType>, OdbcError> {
-        Ok((1..self.columns()? + 1)
-            .map(|i| self.0.describe_col(i as u16).map(Into::into))
+    pub fn schema(&self) -> Result<Vec<ColumnType>, QueryError> {
+        (1..self.columns()? + 1)
+            .map(|i| {
+                self.0.describe_col(i as u16)
+                    .wrap_error_while("getting column description").map_err(QueryError::from)
+                    .and_then(|cd| ColumnType::try_from(cd).map_err(Into::into))
+            })
             .collect::<Result<_, _>>()
-            .wrap_error_while("getting column description")?)
     }
 
     pub fn columns(&self) -> Result<i16, OdbcError> {
