@@ -41,8 +41,7 @@ pub use odbc_type::*;
 /// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
 /// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
 
-/// General ODBC initialization and connection errors
-/// Note: You can convert OdbcError to QueryError with Into::into
+/// ODBC library initialization and connection errors
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
@@ -74,7 +73,8 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
     }
 }
 
-/// Errors related to query execution
+/// Errors related to execution of queries.
+/// `OdbcError` and `DataAccess` error can be converted into `QueryError`.
 #[derive(Debug)]
 pub enum QueryError {
     OdbcError(OdbcError),
@@ -139,8 +139,9 @@ impl From<DataAccessError> for QueryError {
     }
 }
 
-/// Errors related to data access to query results
-/// Note: You can convert DataAccessError to QueryError with Into::into
+/// Errors related to data access of query result set.
+/// This error can happen when iterating rows of executed query result set.
+/// For convenience this error can be converted into `QueryError`.
 #[derive(Debug)]
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
@@ -232,8 +233,7 @@ impl From<serde_json::Error> for DataAccessError {
     }
 }
 
-// Avoid leaking DiagnosticRecord as required public interface
-/// Error returned by bind closure
+/// Error that can happen when binding values to parametrized queries.
 #[derive(Debug)]
 pub struct BindError(DiagnosticRecord);
 
@@ -255,6 +255,7 @@ impl From<DiagnosticRecord> for BindError {
     }
 }
 
+/// This error can be returned if database provided column of type that currently cannot be mapped to `Value` type.
 #[derive(Debug)]
 pub struct UnsupportedSqlDataType(ffi::SqlDataType);
 
@@ -305,7 +306,8 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
     }
 }
 
-/// Iterate rows converting them to given value type
+/// Iterator over result set rows.
+/// Items of this iterator can be of any type that implements `TryFromValueRow` and includes common Rust types and tuples.
 pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
     odbc_schema: Vec<ColumnDescriptor>,
@@ -413,10 +415,13 @@ where
         })
     }
 
+    /// Information about column types.
     pub fn schema(&self) -> &[ColumnType] {
         self.schema.as_slice()
     }
 
+    /// Get exactly one row from the result set.
+    /// This function will fail if zero or more than one rows would be provided.
     pub fn single(mut self) -> Result<V, DataAccessError> {
         let value = self.next().ok_or(DataAccessError::UnexpectedNumberOfRows(
             "expected single row but got no rows",
@@ -429,12 +434,18 @@ where
         value
     }
 
+    /// Get first row from the result set.
+    /// Any following rows are discarded.
+    /// This function will fail no rows were provided.
     pub fn first(mut self) -> Result<V, DataAccessError> {
         self.next().ok_or(DataAccessError::UnexpectedNumberOfRows(
             "expected at least one row but got no rows",
         ))?
     }
 
+    /// Assert that the query returned no rows.
+    /// This function will fail if there was at least one row provided.
+    /// This is useful when working with SQL statements that produce no rows like "INSERT".
     pub fn no_result(mut self) -> Result<(), DataAccessError> {
         if self.next().is_some() {
             return Err(DataAccessError::UnexpectedNumberOfRows(
@@ -449,6 +460,7 @@ impl<'h, 'c: 'h, V> ResultSet<'h, 'c, V, Prepared>
 where
     V: TryFromValueRow,
 {
+    /// Close the result set and discard any not consumed rows.
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
         match self.statement.take().unwrap() {
             ExecutedStatement::HasResult(statement) => Ok(PreparedStatement(
@@ -460,6 +472,7 @@ where
         }
     }
 
+    /// When available provides information on number of rows affected by query (e.g. "DELETE" statement).
     pub fn affected_rows(&self) -> Result<Option<i64>, OdbcError> {
         match &self.statement.as_ref().unwrap() {
             ExecutedStatement::HasResult(statement) => {
@@ -477,6 +490,7 @@ impl<'h, 'c: 'h, V> ResultSet<'h, 'c, V, Executed>
 where
     V: TryFromValueRow,
 {
+    /// Close the result set and discard any not consumed rows.
     pub fn close(mut self) -> Result<(), OdbcError> {
         if let ExecutedStatement::HasResult(statement) = self.statement.take().unwrap() {
             statement
@@ -486,6 +500,7 @@ where
         Ok(())
     }
 
+    /// When available provides information on number of rows affected by query (e.g. "DELETE" statement).
     pub fn affected_rows(&self) -> Result<Option<i64>, OdbcError> {
         let rows = match &self.statement.as_ref().unwrap() {
             ExecutedStatement::HasResult(statement) => {
@@ -631,6 +646,7 @@ where
     }
 }
 
+/// Controls binding of parametrized query values 
 pub struct Binder<'h, 't, S> {
     statement: Statement<'h, 't, S, NoResult>,
     index: u16,
@@ -673,12 +689,14 @@ impl<'h, 't, S> From<Statement<'h, 'h, S, NoResult>> for Binder<'h, 'h, S> {
     }
 }
 
+/// Runtime configuration
 #[derive(Debug)]
 pub struct Options {
+    /// When `true` the `ResultSet` iterator will try to fetch strings as UTF-16 (wide) strings before converting them to Rust's UTF-8 `String`.
     utf_16_strings: bool,
 }
 
-/// Wrapper around ODBC prepared statement
+/// ODBC prepared statement
 pub struct PreparedStatement<'h>(Statement<'h, 'h, odbc::Prepared, odbc::NoResult>);
 
 impl<'h> fmt::Debug for PreparedStatement<'h> {
@@ -697,6 +715,7 @@ impl<'h> fmt::Debug for PreparedStatement<'h> {
 }
 
 impl<'h> PreparedStatement<'h> {
+    /// Query schema information deduced from prepared statement SQL text.
     pub fn schema(&self) -> Result<Vec<ColumnType>, QueryError> {
         (1..self.columns()? + 1)
             .map(|i| {
@@ -709,6 +728,7 @@ impl<'h> PreparedStatement<'h> {
             .collect::<Result<_, _>>()
     }
 
+    /// Query number of columns that would be returned by execution of this prepared statement.
     pub fn columns(&self) -> Result<i16, OdbcError> {
         Ok(self
             .0
@@ -717,6 +737,9 @@ impl<'h> PreparedStatement<'h> {
     }
 }
 
+/// ODBC environment entry point.
+/// There should be only one object of this type in your program. 
+/// It is stored as global static and accessed via associated static functions.
 pub struct Odbc {
     environment: Environment<Version3>,
 }
@@ -724,14 +747,14 @@ pub struct Odbc {
 /// "The ODBC Specification indicates that an external application or process should use a single environment handle
 /// that is shared by local threads. The threads share the environment handle by using it as a common resource
 /// for allocating individual connection handles." (http://www.firstsql.com/ithread5.htm)
-/// lazy_static will make sure only one environment is initialized
+/// lazy_static will make sure only one environment is initialized.
 unsafe impl Sync for Odbc {}
 
 lazy_static! {
     static ref ODBC: Odbc = Odbc::new().expect("Failed to initialize ODBC environment");
 }
 
-/// We need to allow mutable environment to be used to list drivers but onlye one environment should exist at the same time
+/// We need to allow mutable environment to be used to list drivers but only one environment should exist at the same time.
 static ODBC_INIT: AtomicBool = AtomicBool::new(false);
 
 impl fmt::Debug for Odbc {
@@ -754,11 +777,16 @@ impl Odbc {
         ret
     }
 
+    /// Initialize global static ODBC environment now.
+    /// After this was called call to `list_drivers()` will panic.
+    /// Connecting to a database will also initialize the environment. 
+    /// This function will panic if there was a problem crating ODBC environment.
     pub fn initialize() {
         lazy_static::initialize(&ODBC);
     }
 
-    /// This will panic if ODBC was already initialised by `Odbc::connect()` or `Odbc::initialize()`
+    /// Provides list of `DriverInfo` structures describing available ODBC drivers.
+    /// This will panic if ODBC was already initialized by `Odbc::connect()` or `Odbc::initialize()`.
     pub fn list_drivers() -> Result<Vec<DriverInfo>, OdbcError> {
         // we need mutable access to environment
         let mut odbc = Odbc::new()?;
@@ -775,6 +803,7 @@ impl Odbc {
         ret
     }
 
+    /// Connect to database using connection string with default configuration options.
     pub fn connect(connection_string: &str) -> Result<Connection, OdbcError> {
         Self::connect_with_options(
             connection_string,
@@ -784,6 +813,7 @@ impl Odbc {
         )
     }
 
+    /// Connect to database using connection string with configuration options.
     pub fn connect_with_options(
         connection_string: &str,
         options: Options,
@@ -799,12 +829,13 @@ impl Odbc {
     }
 }
 
+/// Database connection.
 pub struct Connection {
     connection: OdbcConnection<'static>,
     utf_16_strings: bool,
 }
 
-/// Assuming drivers support sending Connection between threads
+/// Assuming drivers support sending Connection between threads.
 unsafe impl Send for Connection {}
 
 impl fmt::Debug for Connection {
@@ -815,7 +846,7 @@ impl fmt::Debug for Connection {
     }
 }
 
-/// Handle ensures that query results are consumed before next query can be performed
+/// Handle statically ensures that query result set is consumed before next query can be executed on connection.
 #[derive(Debug)]
 pub struct Handle<'c>(&'c Connection);
 
@@ -832,6 +863,8 @@ impl<'h, 'c: 'h> Handle<'c> {
             .map_err(Into::into)
     }
 
+    /// Query list of tables from given catalog.
+    /// Optionally result can be filtered by table name and table type.
     pub fn tables<'i, V>(
         &'h mut self,
         catalog: &'i str,
@@ -858,6 +891,8 @@ impl<'h, 'c: 'h> Handle<'c> {
         ResultSet::from_result(self, result_set, self.0.utf_16_strings)
     }
 
+    /// Prepare statement for fast execution and parametrization.
+    /// For one-off queries it is more efficient to use `query()` function.
     pub fn prepare(&'h mut self, query: &str) -> Result<PreparedStatement<'c>, OdbcError> {
         debug!("Preparing ODBC query: {}", &query);
 
@@ -869,6 +904,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         Ok(PreparedStatement(statement))
     }
 
+    /// Execute one-off query.
     pub fn query<V>(&'h mut self, query: &str) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
         V: TryFromValueRow,
@@ -876,6 +912,8 @@ impl<'h, 'c: 'h> Handle<'c> {
         self.query_with_parameters(query, |b| Ok(b))
     }
 
+    /// Execute one-off query with parameters.
+    /// This creates prepared statement and binds values to it before execution.
     pub fn query_with_parameters<'t, V, F>(
         &'h mut self,
         query: &str,
@@ -898,6 +936,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         )
     }
 
+    /// Execute prepared statement without parameters.
     pub fn execute<V>(
         &'h mut self,
         statement: PreparedStatement<'c>,
@@ -908,6 +947,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         self.execute_with_parameters(statement, |b| Ok(b))
     }
 
+    /// Bind parameters and execute prepared statement.
     pub fn execute_with_parameters<'t, V, F>(
         &'h mut self,
         statement: PreparedStatement<'c>,
@@ -928,16 +968,19 @@ impl<'h, 'c: 'h> Handle<'c> {
         )
     }
 
+    /// Calls "START TRANSACTION"
     pub fn start_transaction(&mut self) -> Result<(), QueryError> {
         self.query::<()>("START TRANSACTION")?.no_result().unwrap();
         Ok(())
     }
 
+    /// Calls "COMMIT"
     pub fn commit(&mut self) -> Result<(), QueryError> {
         self.query::<()>("COMMIT")?.no_result().unwrap();
         Ok(())
     }
 
+    /// Calls "ROLLBACK"
     pub fn rollback(&mut self) -> Result<(), QueryError> {
         self.query::<()>("ROLLBACK")?.no_result().unwrap();
         Ok(())
@@ -962,8 +1005,8 @@ impl<'h, 'c: 'h> Handle<'c> {
         })
     }
 
-    /// Commit current transaction, run function and start new one.
-    /// This is useful when you need to do changes with auto-commit for example for schema while in transaction already.
+    /// Commit current transaction, run function and start new transaction.
+    /// This is useful when you need to do changes with auto-commit (for example change schema) while in open transaction already.
     pub fn outside_of_transaction<O>(
         &mut self,
         f: impl FnOnce(&mut Handle<'c>) -> O,
@@ -986,6 +1029,9 @@ impl fmt::Display for SplitQueriesError {
 
 impl Error for SplitQueriesError {}
 
+/// Split SQL script into list of queries.
+/// Each query needs to be terminated with semicolon (";").
+/// Lines starting with two dashes ("--") are skipped.
 pub fn split_queries(queries: &str) -> impl Iterator<Item = Result<&str, SplitQueriesError>> {
     lazy_static! {
         // https://regex101.com/r/6YTuVG/4
