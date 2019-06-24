@@ -6,6 +6,7 @@ use odbc::SqlTimestamp;
 pub use odbc::ffi;
 pub use odbc::OdbcType;
 
+/// `SqlTimestamp` type that can be created from number of seconds since epoch as represented by `f64` value.
 #[derive(Debug)]
 pub struct UnixTimestamp(SqlTimestamp);
 

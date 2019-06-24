@@ -5,8 +5,13 @@ thread_local! {
     static DB: RefCell<Option<Connection>> = RefCell::new(None);
 }
 
-/// Access to thread local connection
-/// Connection will be established only once if successful or any time this function is called again after it failed to connect previously
+/// Access to thread local connection.
+/// 
+/// Provided closure will receive the `Connection` object and may return it for reuse by another call or drop it to force new connection to be established to database on next call.
+/// 
+/// If there was an error during connection it is provided to the closure. Next call will attempt to connect again and a new error may be provided.
+/// 
+/// `connection_string` is used only when making new `Connection` object initially, after error or after old `Connection` object was dropped.
 pub fn connection_with<O>(
     connection_string: &str,
     f: impl Fn(Result<Connection, OdbcError>) -> (Option<Connection>, O),

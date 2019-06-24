@@ -29,19 +29,19 @@ mod odbc_type;
 pub mod thread_local;
 pub use odbc_type::*;
 
-/// TODO
-/// * Prepared statement cache:
-/// ** db.with_statement_cache() -> StatementCache
-/// ** sc.query(str) - direct query
-/// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepare + execute;
-///    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
-/// ** sc.clear() - try close the statement and clear the cache
-/// * MultiConnection - special handle that does not require mutable reference to query but will automatically crate and manage connections if one is already busy
-/// ** Connections behind RefCell, get Handle for each query
-/// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
-/// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
+// TODO
+// * Prepared statement cache:
+// ** db.with_statement_cache() -> StatementCache
+// ** sc.query(str) - direct query
+// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepare + execute;
+//    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
+// ** sc.clear() - try close the statement and clear the cache
+// * MultiConnection - special handle that does not require mutable reference to query but will automatically crate and manage connections if one is already busy
+// ** Connections behind RefCell, get Handle for each query
+// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
+// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
 
-/// ODBC library initialization and connection errors
+/// ODBC library initialization and connection errors.
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);
 
@@ -74,7 +74,8 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
 }
 
 /// Errors related to execution of queries.
-/// `OdbcError` and `DataAccess` error can be converted into `QueryError`.
+/// 
+/// `OdbcError` and `DataAccessError` can be converted into `QueryError`.
 #[derive(Debug)]
 pub enum QueryError {
     OdbcError(OdbcError),
@@ -140,6 +141,7 @@ impl From<DataAccessError> for QueryError {
 }
 
 /// Errors related to data access of query result set.
+/// 
 /// This error can happen when iterating rows of executed query result set.
 /// For convenience this error can be converted into `QueryError`.
 #[derive(Debug)]
@@ -307,7 +309,8 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 }
 
 /// Iterator over result set rows.
-/// Items of this iterator can be of any type that implements `TryFromValueRow` and includes common Rust types and tuples.
+/// 
+/// Items of this iterator can be of any type that implements `TryFromValueRow` that includes common Rust types and tuples.
 pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
     odbc_schema: Vec<ColumnDescriptor>,
@@ -646,7 +649,7 @@ where
     }
 }
 
-/// Controls binding of parametrized query values 
+/// Controls binding of parametrized query values.
 pub struct Binder<'h, 't, S> {
     statement: Statement<'h, 't, S, NoResult>,
     index: u16,
@@ -689,14 +692,14 @@ impl<'h, 't, S> From<Statement<'h, 'h, S, NoResult>> for Binder<'h, 'h, S> {
     }
 }
 
-/// Runtime configuration
+/// Runtime configuration.
 #[derive(Debug)]
 pub struct Options {
     /// When `true` the `ResultSet` iterator will try to fetch strings as UTF-16 (wide) strings before converting them to Rust's UTF-8 `String`.
-    utf_16_strings: bool,
+    pub utf_16_strings: bool,
 }
 
-/// ODBC prepared statement
+/// ODBC prepared statement.
 pub struct PreparedStatement<'h>(Statement<'h, 'h, odbc::Prepared, odbc::NoResult>);
 
 impl<'h> fmt::Debug for PreparedStatement<'h> {
@@ -738,6 +741,7 @@ impl<'h> PreparedStatement<'h> {
 }
 
 /// ODBC environment entry point.
+/// 
 /// There should be only one object of this type in your program. 
 /// It is stored as global static and accessed via associated static functions.
 pub struct Odbc {
@@ -846,7 +850,9 @@ impl fmt::Debug for Connection {
     }
 }
 
-/// Handle statically ensures that query result set is consumed before next query can be executed on connection.
+/// Blocks access to `Connection` for duration of query.
+/// 
+/// Statically ensures that query result set is consumed before next query can be executed on this connection.
 #[derive(Debug)]
 pub struct Handle<'c>(&'c Connection);
 
@@ -1018,6 +1024,7 @@ impl<'h, 'c: 'h> Handle<'c> {
     }
 }
 
+/// Error splitting SQL script into single queries.
 #[derive(Debug)]
 pub struct SplitQueriesError;
 

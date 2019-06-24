@@ -3,8 +3,12 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 
+/// Row of dynamic nullable column values.
+/// 
+/// This objects are constructed from row data returned by ODBC library and can be further converted to types implementing `TryFromValueRow`/`TryFromValue` traits.
 pub type ValueRow = Vec<Option<Value>>;
 
+/// Description of column type, name and nullability properties used to represent row schema.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnType {
     pub value_type: ValueType,
@@ -12,17 +16,22 @@ pub struct ColumnType {
     pub name: String,
 }
 
-/// This traits allow for convetion of ValueRow type used intarnally by ResultSet iterator to any
-/// other type returned as Item.
-///
-/// Note: TryFrom/TryInto cannot be implemented since we need to own the trait
+// Note: TryFrom/TryInto cannot be implemented since we need to own the trait
 
-/// Given column names convert from Row to other type of value
+/// This traits allow for conversion of `ValueRow` type used internally by `ResultSet` iterator to any
+/// other type returned as `Item` that implements it.
+/// 
+/// This trait is implemented for Rust tuple type enabling conversion of rows to tuples of types implementing `TryFromValue`.
+/// Also this trait implementation allows to convert single column rows to types implementing `TryFromValue`.
+/// 
+/// This trait can be implemented for custom objects. This will enable them to be queried directly from database as `Item` of `ResultSet` iterator.
 pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
+    /// Given `ColumnType` convert from `ValueRow` to other type of value representing table row.
     fn try_from_row<'n>(values: ValueRow, schema: &'n [ColumnType]) -> Result<Self, Self::Error>;
 }
 
+/// Errors that may happen during conversion of `ValueRow` to given type.
 #[derive(Debug)]
 pub enum RowConvertError {
     UnexpectedNullValue(&'static str),
@@ -61,6 +70,7 @@ impl Error for RowConvertError {
     }
 }
 
+/// Allow to retrieve unconverted `ValueRow` as item of `ResultSet` iterator.
 impl TryFromValueRow for ValueRow {
     type Error = Infallible;
     fn try_from_row<'n>(values: ValueRow, _schema: &'n [ColumnType]) -> Result<Self, Self::Error> {
@@ -68,6 +78,7 @@ impl TryFromValueRow for ValueRow {
     }
 }
 
+/// Unit can be used to signal that no rows of data should be produced.
 impl TryFromValueRow for () {
     type Error = RowConvertError;
     fn try_from_row<'n>(_values: ValueRow, _schema: &'n [ColumnType]) -> Result<Self, Self::Error> {
@@ -75,6 +86,7 @@ impl TryFromValueRow for () {
     }
 }
 
+/// Convert row with single column to any type implementing `TryFromValue`.
 impl<T> TryFromValueRow for T
 where
     T: TryFromValue,
@@ -100,6 +112,7 @@ where
     }
 }
 
+/// Errors that my arise when converting rows to tuples.
 #[derive(Debug)]
 pub enum RowConvertTupleError {
     UnexpectedNumberOfColumns { expected: u16, tuple: &'static str },

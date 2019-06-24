@@ -5,6 +5,7 @@ use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
 
+/// Representation of every supported column value.
 #[derive(Clone, PartialEq)]
 pub enum Value {
     Bit(bool),
@@ -22,8 +23,8 @@ pub enum Value {
     Json(serde_json::Value),
 }
 
-/// Note that `as_` methods return reference so values can be parameter-bound to a query
-/// Use `to_` or `into_` methods to get values cheaply
+/// Note that `as_` methods return reference so values can be parameter-bound to a query.
+/// Use `to_` or `into_` methods to get values cheaply.
 impl Value {
     pub fn as_bool(&self) -> Option<&bool> {
         match self {
@@ -203,7 +204,7 @@ impl Value {
         }
     }
 
-    /// Provide string describing type of this value
+    /// Type of this value.
     pub fn value_type(&self) -> ValueType {
         match self {
             Value::Bit(_) => ValueType::Bit,
@@ -417,6 +418,7 @@ impl fmt::Debug for Value {
     }
 }
 
+/// Types of values that `Value` can represent.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueType {
     Bit,
@@ -435,6 +437,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    /// Static string describing type of value in `Value`.
     pub fn description(&self) -> &'static str {
         match self {
             ValueType::Bit => "BIT",
@@ -454,6 +457,7 @@ impl ValueType {
     }
 }
 
+/// Wrapper type that can be used to display nullable column value represented as `Option<Value>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NullableValue<'i>(&'i Option<Value>, &'static str);
 
@@ -467,25 +471,31 @@ impl<'i> fmt::Display for NullableValue<'i> {
 }
 
 pub trait AsNullable {
+    /// Convert to `NullableValue` that implements `Display` representing no value as "NULL".
     fn as_nullable(&self) -> NullableValue {
         self.as_nullable_as("NULL")
     }
 
+    /// Convert to `NullableValue` that implements `Display` representing no value as given string.
     fn as_nullable_as(&self, null: &'static str) -> NullableValue;
 }
 
+/// Represent `None` as "NULL" and `Some(Value)` as value.
 impl AsNullable for Option<Value> {
-    /// Convert to NullableValue that implements Display for None variant as "NULL"
     fn as_nullable_as(&self, null: &'static str) -> NullableValue {
         NullableValue(&self, null)
     }
 }
 
+/// Column values can be converted to types implementing this trait.
+/// 
+/// This trait is implemented for primitive Rust types, `String` and `chrono` date and time types.
 pub trait TryFromValue: Sized {
     type Error: Error + 'static;
     fn try_from_value(value: Option<Value>) -> Result<Self, Self::Error>;
 }
 
+/// Error type that represents different problems when converting column values to specific types.
 #[derive(Debug)]
 pub enum ValueConvertError {
     UnexpectedNullValue(&'static str),
