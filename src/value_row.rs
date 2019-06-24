@@ -63,20 +63,14 @@ impl Error for RowConvertError {
 
 impl TryFromValueRow for ValueRow {
     type Error = Infallible;
-    fn try_from_row<'n>(
-        values: ValueRow,
-        _schema: &'n [ColumnType],
-    ) -> Result<Self, Self::Error> {
+    fn try_from_row<'n>(values: ValueRow, _schema: &'n [ColumnType]) -> Result<Self, Self::Error> {
         Ok(values)
     }
 }
 
 impl TryFromValueRow for () {
     type Error = RowConvertError;
-    fn try_from_row<'n>(
-        _values: ValueRow,
-        _schema: &'n [ColumnType],
-    ) -> Result<Self, Self::Error> {
+    fn try_from_row<'n>(_values: ValueRow, _schema: &'n [ColumnType]) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }

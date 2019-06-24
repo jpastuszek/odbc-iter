@@ -2,10 +2,11 @@ use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, NoResult,
-    ResultSetState, Statement, Version3, ColumnDescriptor
+    Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord, DriverInfo,
+    Environment, NoResult, ResultSetState, Statement, Version3,
 };
 use regex::Regex;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -13,7 +14,6 @@ use std::marker::PhantomData;
 use std::string::FromUtf16Error;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
-use std::convert::TryFrom;
 
 // Allow for custom OdbcType impl for binning
 pub use odbc::ffi;
@@ -24,7 +24,7 @@ pub use odbc::{Executed, Prepared};
 mod value;
 pub use value::{AsNullable, NullableValue, Value, ValueType};
 mod value_row;
-pub use value_row::{TryFromValueRow, ValueRow, ColumnType};
+pub use value_row::{ColumnType, TryFromValueRow, ValueRow};
 mod odbc_type;
 pub mod thread_local;
 pub use odbc_type::*;
@@ -90,7 +90,9 @@ impl fmt::Display for QueryError {
             QueryError::BindError(_) => {
                 write!(f, "ODBC call failed while binding parameter to statement")
             }
-            QueryError::UnsupportedSqlDataType(_) => write!(f, "query schema has unsupported data type"),
+            QueryError::UnsupportedSqlDataType(_) => {
+                write!(f, "query schema has unsupported data type")
+            }
             QueryError::DataAccessError(_) => write!(f, "failed to access result data"),
         }
     }
@@ -160,7 +162,9 @@ impl fmt::Display for DataAccessError {
             DataAccessError::OdbcCursorError(_) => {
                 write!(f, "failed to access data in ODBC cursor")
             }
-            DataAccessError::UnsupportedSqlDataType(_) => write!(f, "failed to handle data type conversion"),
+            DataAccessError::UnsupportedSqlDataType(_) => {
+                write!(f, "failed to handle data type conversion")
+            }
             DataAccessError::FromRowError(_) => {
                 write!(f, "failed to convert table row to target type")
             }
@@ -260,7 +264,7 @@ impl fmt::Display for UnsupportedSqlDataType {
     }
 }
 
-impl Error for UnsupportedSqlDataType { }
+impl Error for UnsupportedSqlDataType {}
 
 impl TryFrom<ColumnDescriptor> for ColumnType {
     type Error = UnsupportedSqlDataType;
@@ -273,15 +277,13 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
             SQL_SMALLINT => ValueType::Smallint,
             SQL_INTEGER => ValueType::Integer,
             SQL_EXT_BIGINT => ValueType::Bigint,
-            SQL_FLOAT |
-            SQL_REAL => ValueType::Float,
+            SQL_FLOAT | SQL_REAL => ValueType::Float,
             SQL_DOUBLE => ValueType::Double,
-            SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR |
-            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => ValueType::String,
+            SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR | SQL_EXT_WCHAR | SQL_EXT_WVARCHAR
+            | SQL_EXT_WLONGVARCHAR => ValueType::String,
             SQL_TIMESTAMP => ValueType::Timestamp,
             SQL_DATE => ValueType::Date,
-            SQL_TIME |
-            SQL_SS_TIME2 => ValueType::Time,
+            SQL_TIME | SQL_SS_TIME2 => ValueType::Time,
             SQL_UNKNOWN_TYPE => {
                 #[cfg(feature = "serde_json")]
                 {
@@ -698,8 +700,10 @@ impl<'h> PreparedStatement<'h> {
     pub fn schema(&self) -> Result<Vec<ColumnType>, QueryError> {
         (1..self.columns()? + 1)
             .map(|i| {
-                self.0.describe_col(i as u16)
-                    .wrap_error_while("getting column description").map_err(QueryError::from)
+                self.0
+                    .describe_col(i as u16)
+                    .wrap_error_while("getting column description")
+                    .map_err(QueryError::from)
                     .and_then(|cd| ColumnType::try_from(cd).map_err(Into::into))
             })
             .collect::<Result<_, _>>()
