@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
     Allocated, Connection as OdbcConnection, DiagnosticRecord, DriverInfo, Environment, NoResult,
-    ResultSetState, Statement, Version3,
+    ResultSetState, Statement, Version3, ColumnDescriptor
 };
 use regex::Regex;
 use std::error::Error;
@@ -14,8 +14,6 @@ use std::string::FromUtf16Error;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 
-// Schema
-pub use odbc::ColumnDescriptor;
 // Allow for custom OdbcType impl for binning
 pub use odbc::ffi;
 pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
@@ -23,14 +21,15 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 pub use odbc::{Executed, Prepared};
 
 mod value;
-pub use value::{AsNullable, NullableValue, Value};
+pub use value::{AsNullable, NullableValue, Value, ValueType};
 mod value_row;
-pub use value_row::{TryFromValueRow, ValueRow};
+pub use value_row::{TryFromValueRow, ValueRow, ColumnType};
 mod odbc_type;
 pub mod thread_local;
 pub use odbc_type::*;
 
 /// TODO
+/// * don't panic on unsupported SQL value type
 /// * Prepared statement cache:
 /// ** db.with_statement_cache() -> StatementCache
 /// ** sc.query(str) - direct query
@@ -234,14 +233,53 @@ impl From<DiagnosticRecord> for BindError {
     }
 }
 
-pub type EnvironmentV3 = Environment<Version3>;
-pub type Schema = Vec<ColumnDescriptor>;
+impl From<ColumnDescriptor> for ColumnType {
+    fn from(column_descriptor: ColumnDescriptor) -> ColumnType {
+        use odbc::ffi::SqlDataType::*;
+        let value_type = match column_descriptor.data_type {
+            SQL_EXT_BIT => ValueType::Bit,
+            SQL_EXT_TINYINT => ValueType::Tinyint,
+            SQL_SMALLINT => ValueType::Smallint,
+            SQL_INTEGER => ValueType::Integer,
+            SQL_EXT_BIGINT => ValueType::Bigint,
+            SQL_FLOAT |
+            SQL_REAL => ValueType::Float,
+            SQL_DOUBLE => ValueType::Double,
+            SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR |
+            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => ValueType::String,
+            SQL_TIMESTAMP => ValueType::Timestamp,
+            SQL_DATE => ValueType::Date,
+            SQL_TIME |
+            SQL_SS_TIME2 => ValueType::Time,
+            SQL_UNKNOWN_TYPE => {
+                #[cfg(feature = "serde_json")]
+                {
+                    ValueType::Json
+                }
+                #[cfg(not(feature = "serde_json"))]
+                {
+                    ValueType::String
+                }
+            }
+            _ => panic!(format!(
+                "got unimplemented SQL data type: {:?}",
+                column_descriptor.data_type
+            )),
+        };
+
+        ColumnType {
+            value_type,
+            nullable: column_descriptor.nullable.unwrap_or(true),
+            name: column_descriptor.name,
+        }
+    }
+}
 
 /// Iterate rows converting them to given value type
 pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
     odbc_schema: Vec<ColumnDescriptor>,
-    column_names: Vec<String>,
+    schema: Vec<ColumnType>,
     columns: i16,
     utf_16_strings: bool,
     phantom: PhantomData<&'h V>,
@@ -251,7 +289,7 @@ impl<'h, 'c, V, S> fmt::Debug for ResultSet<'h, 'c, V, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ResultSet")
             .field("odbc_schema", &self.odbc_schema)
-            .field("column_names", &self.column_names)
+            .field("schema", &self.schema)
             .field("columns", &self.columns)
             .field("utf_16_strings", &self.utf_16_strings)
             .finish()
@@ -330,27 +368,23 @@ where
         }
 
         // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
-        let column_names = odbc_schema
+        let schema = odbc_schema
             .iter()
-            .map(|s| s.name.clone())
+            .map(|c| ColumnType::from(c.clone()))
             .collect::<Vec<_>>();
 
         Ok(ResultSet {
             statement: Some(statement),
             odbc_schema,
-            column_names,
+            schema,
             columns,
             phantom: PhantomData,
             utf_16_strings,
         })
     }
 
-    pub fn column_names(&self) -> &[String] {
-        self.column_names.as_slice()
-    }
-
-    pub fn columns(&self) -> i16 {
-        self.columns
+    pub fn schema(&self) -> &[ColumnType] {
+        self.schema.as_slice()
     }
 
     pub fn single(mut self) -> Result<V, DataAccessError> {
@@ -562,7 +596,11 @@ where
             }
             Ok(None) => None,
         }
-        .map(|v| v.and_then(|v| TryFromValueRow::try_from_row(v, self.column_names()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))))
+        .map(|v| v.and_then(|v| {
+            // Verify that value types match schema
+            debug_assert!(v.iter().map(|v| v.as_ref().map(|v| v.value_type())).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.value_type } else { true }));
+            TryFromValueRow::try_from_row(v, self.schema()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))
+        }))
     }
 }
 
@@ -632,23 +670,23 @@ impl<'h> fmt::Debug for PreparedStatement<'h> {
 }
 
 impl<'h> PreparedStatement<'h> {
+    pub fn schema(&self) -> Result<Vec<ColumnType>, OdbcError> {
+        Ok((1..self.columns()? + 1)
+            .map(|i| self.0.describe_col(i as u16).map(Into::into))
+            .collect::<Result<_, _>>()
+            .wrap_error_while("getting column description")?)
+    }
+
     pub fn columns(&self) -> Result<i16, OdbcError> {
         Ok(self
             .0
             .num_result_cols()
             .wrap_error_while("getting number of columns in prepared statement")?)
     }
-
-    pub fn schema(&self) -> Result<Schema, OdbcError> {
-        Ok((1..self.columns()? + 1)
-            .map(|i| self.0.describe_col(i as u16))
-            .collect::<Result<Vec<ColumnDescriptor>, _>>()
-            .wrap_error_while("getting column description")?)
-    }
 }
 
 pub struct Odbc {
-    environment: EnvironmentV3,
+    environment: Environment<Version3>,
 }
 
 /// "The ODBC Specification indicates that an external application or process should use a single environment handle
@@ -1361,8 +1399,8 @@ pub mod tests {
 
         let schema = statement.schema().unwrap();
         assert_eq!(schema.len(), 4);
-        assert_eq!(schema[1].name, "foo");
-        assert_eq!(schema[1].data_type, ffi::SqlDataType::SQL_INTEGER);
+        assert_eq!(schema[1].nullable, true);
+        assert_eq!(schema[1].value_type, ValueType::Integer);
     }
 
     #[cfg(feature = "test-hive")]
@@ -1663,6 +1701,6 @@ SELECT *;
             })
             .expect("failed to run query");
 
-        assert_eq!(format!("{:?}", result_set), "ResultSet { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_EXT_WVARCHAR, column_size: Some(1200), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_INTEGER, column_size: Some(10), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_EXT_BIT, column_size: Some(1), decimal_digits: None, nullable: Some(true) }], column_names: [\"foo\", \"bar\", \"baz\"], columns: 3, utf_16_strings: true }");
+        assert_eq!(format!("{:?}", result_set), "ResultSet { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_EXT_WVARCHAR, column_size: Some(1200), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_INTEGER, column_size: Some(10), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_EXT_BIT, column_size: Some(1), decimal_digits: None, nullable: Some(true) }], schema: [ColumnType { value_type: String, nullable: true, name: \"foo\" }, ColumnType { value_type: Integer, nullable: true, name: \"bar\" }, ColumnType { value_type: Bit, nullable: true, name: \"baz\" }], columns: 3, utf_16_strings: true }");
     }
 }

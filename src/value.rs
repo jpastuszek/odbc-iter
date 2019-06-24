@@ -204,21 +204,21 @@ impl Value {
     }
 
     /// Provide string describing type of this value
-    pub fn description(&self) -> &'static str {
+    pub fn value_type(&self) -> ValueType {
         match self {
-            Value::Bit(_) => "BIT",
-            Value::Tinyint(_) => "TINYINT",
-            Value::Smallint(_) => "SMALLINT",
-            Value::Integer(_) => "INTEGER",
-            Value::Bigint(_) => "BIGINT",
-            Value::Float(_) => "FLOAT",
-            Value::Double(_) => "DOUBLE",
-            Value::String(_) => "STRING",
-            Value::Timestamp(_) => "TIMESTAMP",
-            Value::Date(_) => "DATE",
-            Value::Time(_) => "TIME",
+            Value::Bit(_) => ValueType::Bit,
+            Value::Tinyint(_) => ValueType::Tinyint,
+            Value::Smallint(_) => ValueType::Smallint,
+            Value::Integer(_) => ValueType::Integer,
+            Value::Bigint(_) => ValueType::Bigint,
+            Value::Float(_) => ValueType::Float,
+            Value::Double(_) => ValueType::Double,
+            Value::String(_) => ValueType::String,
+            Value::Timestamp(_) => ValueType::Timestamp,
+            Value::Date(_) => ValueType::Date,
+            Value::Time(_) => ValueType::Time,
             #[cfg(feature = "serde_json")]
-            Value::Json(_) => "JSON",
+            Value::Json(_) => ValueType::Json,
         }
     }
 }
@@ -417,6 +417,43 @@ impl fmt::Debug for Value {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ValueType {
+    Bit,
+    Tinyint,
+    Smallint,
+    Integer,
+    Bigint,
+    Float,
+    Double,
+    String,
+    Timestamp,
+    Date,
+    Time,
+    #[cfg(feature = "serde_json")]
+    Json,
+}
+
+impl ValueType {
+    pub fn description(&self) -> &'static str {
+        match self {
+            ValueType::Bit => "BIT",
+            ValueType::Tinyint => "TINYINT",
+            ValueType::Smallint => "SMALLINT",
+            ValueType::Integer => "INTEGER",
+            ValueType::Bigint => "BIGINT",
+            ValueType::Float => "FLOAT",
+            ValueType::Double => "DOUBLE",
+            ValueType::String => "STRING",
+            ValueType::Timestamp => "TIMESTAMP",
+            ValueType::Date => "DATE",
+            ValueType::Time => "TIME",
+            #[cfg(feature = "serde_json")]
+            ValueType::Json => "JSON",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct NullableValue<'i>(&'i Option<Value>, &'static str);
 
@@ -502,7 +539,7 @@ macro_rules! try_from_value_copy {
                     value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
                 value.$f().ok_or_else(|| ValueConvertError::UnexpectedType {
                     expected: stringify!($t),
-                    got: value.description(),
+                    got: value.value_type().description(),
                 })
             }
         }
@@ -554,7 +591,7 @@ macro_rules! try_from_value_owned {
                     .$f()
                     .map_err(|value| ValueConvertError::UnexpectedType {
                         expected: stringify!($t),
-                        got: value.description(),
+                        got: value.value_type().description(),
                     })
             }
         }
@@ -568,7 +605,7 @@ macro_rules! try_from_value_owned {
                             .$f()
                             .map_err(|value| ValueConvertError::UnexpectedType {
                                 expected: stringify!($t),
-                                got: value.description(),
+                                got: value.value_type().description(),
                             })
                     })
                     .transpose()
