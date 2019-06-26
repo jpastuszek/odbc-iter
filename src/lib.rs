@@ -163,8 +163,6 @@ pub mod thread_local;
 pub use odbc_type::*;
 
 // TODO
-// * use impl Bind function to avoid need of F type in execute_with_parameters
-// ** When ResultSet is done it will return the PreparedStatement back to Option<> in the Handle
 // * Prepared statement cache:
 // ** db.with_statement_cache() -> StatementCache
 // ** sc.query(str) - direct query
