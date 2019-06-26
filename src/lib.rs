@@ -13,15 +13,15 @@ Example usage
 Connect and run one-off queries with row type conversion
 -------------
 
-```
+```rust
 use odbc_iter::{Odbc, ValueRow};
 
 // Connect to database using connection string
 let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
-let mut db = Odbc::connect(&connection_string).expect("failed to connect to database");
+let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
-let mut db = db.handle();
+let mut db = connection.handle();
 
 // Get single row single column value
 println!("{}", db.query::<String>("SELECT 'hello world'").expect("failed to run query").single().expect("failed to fetch row"));
@@ -55,15 +55,15 @@ for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar'
 Using prepared statements and parametrized queries
 -------------
 
-```
+```rust
 use odbc_iter::{Odbc, ValueRow};
 
 // Connect to database using connection string
 let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
-let mut db = Odbc::connect(&connection_string).expect("failed to connect to database");
+let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
-let mut db = db.handle();
+let mut db = connection.handle();
 
 let prepared_statement = db
     .prepare("SELECT 'hello world' AS foo, CAST(42 AS INTEGER) AS bar, CAST(10000000 AS BIGINT) AS baz")
@@ -129,6 +129,71 @@ for row in &mut result_set {
 // Prints:
 // [Some(String("foo bar")), Some(Integer(99)), Some(Bigint(2000000))]
 ```
+
+Using thread local connection
+-------------
+```rust
+use odbc_iter::{Odbc, ValueRow};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
+
+// `connection_with` can be used to create one connection per thread (assuming thread pool is used)
+let result = odbc_iter::thread_local::connection_with(&connection_string, |mut connection| {
+    // Provided object contains result of the connection operation; in case of error calling
+    // `connection_with` again will result in new connection attempt
+    let mut connection = connection.expect("failed to connect");
+
+    // Handle statically guards access to connection and provides query functionality
+    let mut db = connection.handle();
+
+    // Get single row single column value
+    let result = db.query::<String>("SELECT 'hello world'").expect("failed to run query").single().expect("failed to fetch row");
+
+    // Return connection back to thread local so it can be reused later on along with the result of
+    // the query that will be returned by the `connection_with` call
+    // Returning None connection is useful to force reconnect on the next call e.g. after some error
+    (Some(connection), result)
+});
+
+println!("{}", result);
+// Prints:
+// hello world
+
+```
+
+Converting column values to `chrono` crate's date and time types (with "chrono" feature)
+-------------
+```rust
+# #[cfg(feature = "chrono")]
+# {
+use odbc_iter::{Odbc, ValueRow, NaiveDateTime};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
+let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+
+// Handle statically guards access to connection and provides query functionality
+let mut db = connection.handle();
+
+// Get single row single column value
+println!("{}", db.query::<NaiveDateTime>("SELECT CAST('2019-05-03 13:21:33.749' AS DATETIME)").expect("failed to run query").single().expect("failed to fetch row"));
+// Prints:
+// 2019-05-03 13:21:33.750
+# }
+
+```
+
+Converting column values to `JSON` with MonetDB (with "serde_json" feature)
+-------------
+
+TBD
+
+Serializing `Value` and `ValueRow` using `serde` (with "serde" feature)
+-------------
+
+TBD
+
 !*/
 
 use error_context::prelude::*;
@@ -161,6 +226,12 @@ pub use value_row::{ValueRow, ColumnType, TryFromValueRow, };
 mod odbc_type;
 pub mod thread_local;
 pub use odbc_type::*;
+
+// Re-export used chrono types and traits so this is ready usable
+#[cfg(feature = "chrono")]
+pub use value::{NaiveDate, NaiveDateTime, NaiveTime};
+#[cfg(feature = "chrono")]
+pub use value::{Datelike, Timelike};
 
 // TODO
 // * Prepared statement cache:
@@ -1447,6 +1518,7 @@ pub mod tests {
         assert!(data.len() > 0);
     }
 
+    #[cfg(feature = "chrono")]
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_date() {
@@ -1462,6 +1534,7 @@ pub mod tests {
         assert_matches!(&data[0][0], Some(date @ Value::Date(_)) => assert_eq!(&date.to_naive_date().unwrap().to_string(), "2018-08-24"));
     }
 
+    #[cfg(feature = "chrono")]
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_time() {

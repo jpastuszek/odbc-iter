@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 
 /// Row of dynamic nullable column values.
-/// 
+///
 /// This objects are constructed from row data returned by ODBC library and can be further converted to types implementing `TryFromValueRow`/`TryFromValue` traits.
 pub type ValueRow = Vec<Option<Value>>;
 
@@ -20,10 +20,10 @@ pub struct ColumnType {
 
 /// This traits allow for conversion of `ValueRow` type used internally by `ResultSet` iterator to any
 /// other type returned as `Item` that implements it.
-/// 
+///
 /// This trait is implemented for Rust tuple type enabling conversion of rows to tuples of types implementing `TryFromValue`.
 /// Also this trait implementation allows to convert single column rows to types implementing `TryFromValue`.
-/// 
+///
 /// This trait can be implemented for custom objects. This will enable them to be queried directly from database as `Item` of `ResultSet` iterator.
 pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
@@ -501,6 +501,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "chrono")]
     #[cfg(feature = "test-monetdb")]
     fn test_single_date() {
         use chrono::Datelike;

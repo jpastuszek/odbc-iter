@@ -1,9 +1,12 @@
-use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
-use chrono::{Datelike, Timelike};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
+
+#[cfg(feature = "chrono")]
+pub use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+#[cfg(feature = "chrono")]
+pub use chrono::{Datelike, Timelike};
 
 /// Representation of every supported column value.
 #[derive(Clone, PartialEq)]
@@ -131,6 +134,7 @@ impl Value {
         }
     }
 
+    #[cfg(feature = "chrono")]
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
         self.as_timestamp().map(|value| {
             NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
@@ -157,6 +161,7 @@ impl Value {
         }
     }
 
+    #[cfg(feature = "chrono")]
     pub fn to_naive_date(&self) -> Option<NaiveDate> {
         self.as_date().map(|value| {
             NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
@@ -177,6 +182,7 @@ impl Value {
         }
     }
 
+    #[cfg(feature = "chrono")]
     pub fn to_naive_time(&self) -> Option<NaiveTime> {
         self.as_time().map(|value| {
             NaiveTime::from_hms_nano(
@@ -272,6 +278,7 @@ impl From<String> for Value {
     }
 }
 
+#[cfg(feature = "chrono")]
 impl From<NaiveDateTime> for Value {
     fn from(value: NaiveDateTime) -> Value {
         Value::Timestamp(SqlTimestamp {
@@ -292,13 +299,16 @@ impl From<SqlTimestamp> for Value {
     }
 }
 
+#[cfg(feature = "chrono")]
 use crate::odbc_type::UnixTimestamp;
+#[cfg(feature = "chrono")]
 impl From<UnixTimestamp> for Value {
     fn from(value: UnixTimestamp) -> Value {
         Value::Timestamp(value.into_inner())
     }
 }
 
+#[cfg(feature = "chrono")]
 impl From<NaiveDate> for Value {
     fn from(value: NaiveDate) -> Value {
         Value::Date(SqlDate {
@@ -315,6 +325,7 @@ impl From<SqlDate> for Value {
     }
 }
 
+#[cfg(feature = "chrono")]
 impl From<NaiveTime> for Value {
     fn from(value: NaiveTime) -> Value {
         Value::Time(SqlSsTime2 {
@@ -488,7 +499,7 @@ impl AsNullable for Option<Value> {
 }
 
 /// Column values can be converted to types implementing this trait.
-/// 
+///
 /// This trait is implemented for primitive Rust types, `String` and `chrono` date and time types.
 pub trait TryFromValue: Sized {
     type Error: Error + 'static;
@@ -637,10 +648,13 @@ try_from_value_copy![f32, to_f32];
 try_from_value_copy![f64, to_f64];
 try_from_value_owned![String, into_string];
 try_from_value_owned![SqlTimestamp, into_timestamp];
+#[cfg(feature = "chrono")]
 try_from_value_copy![NaiveDateTime, to_naive_date_time];
 try_from_value_owned![SqlDate, into_date];
+#[cfg(feature = "chrono")]
 try_from_value_copy![NaiveDate, to_naive_date];
 try_from_value_owned![SqlSsTime2, into_time];
+#[cfg(feature = "chrono")]
 try_from_value_copy![NaiveTime, to_naive_time];
 
 #[cfg(feature = "serde")]
@@ -703,6 +717,7 @@ mod ser {
             );
         }
 
+        #[cfg(feature = "chrono")]
         #[test]
         fn serialize_value_timestamp() {
             assert_eq!(
@@ -721,6 +736,7 @@ mod ser {
             );
         }
 
+        #[cfg(feature = "chrono")]
         #[test]
         fn serialize_value_date() {
             assert_eq!(
@@ -733,6 +749,7 @@ mod ser {
             );
         }
 
+        #[cfg(feature = "chrono")]
         #[test]
         fn serialize_value_time() {
             assert_eq!(

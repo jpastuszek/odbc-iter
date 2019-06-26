@@ -5,19 +5,18 @@ authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
 edition = "2018"
 
 [features] # no features by default
-default = []
+default = ["chrono"]
 test-hive = []
 test-sql-server = []
 test-monetdb = []
 
 [dependencies]
-# odbc = "0.10.1"
-odbc = { git = "https://github.com/jpastuszek/odbc-rs" }
+odbc = "0.13.0"
 regex = "1.1.0"
 lazy_static = "1.2.0"
 log = "0.4.6"
 error-context = "0.1.0"
-chrono = "0.4.6"
+chrono = { version = "0.4.6", optional = true }
 serde = { version = "1.0.88", optional = true }
 serde_json = { version = "1.0.39", optional = true }
 
