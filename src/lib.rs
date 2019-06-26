@@ -207,11 +207,30 @@ println!("{}", db.query::<Value>(r#"SELECT CAST('{ "foo": 42 }' AS JSON)"#).expe
 # }
 ```
 
-Serializing `Value` and `ValueRow` using `serde` (with "serde" feature)
+Serializing `Value` and `ValueRow` using `serde` to JSON string (with "serde" feature)
 -------------
 
-TBD
+```rust
+# #[cfg(feature = "serde_json")]
+# #[cfg(feature = "serde")]
+# {
+use odbc_iter::{Odbc, ValueRow};
 
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
+let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+
+// Handle statically guards access to connection and provides query functionality
+let mut db = connection.handle();
+
+// Get `ValueRow` (or just single `Value`) that implements `serde::Serialize` trait
+let row = db.query::<ValueRow>("SELECT 'hello world', CAST(42 AS INTEGER), CAST(10000000 AS BIGINT)").expect("failed to run query").single().expect("failed to fetch row");
+
+println!("{}", serde_json::to_string(&row).expect("failed to serialize"));
+// Prints:
+// ["hello world",42,10000000]
+# }
+```
 !*/
 
 use error_context::prelude::*;
