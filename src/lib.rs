@@ -167,7 +167,8 @@ Converting column values to `chrono` crate's date and time types (with "chrono" 
 ```rust
 # #[cfg(feature = "chrono")]
 # {
-use odbc_iter::{Odbc, ValueRow, NaiveDateTime};
+use odbc_iter::{Odbc, ValueRow};
+use chrono::NaiveDateTime;
 
 // Connect to database using connection string
 let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
@@ -226,12 +227,6 @@ pub use value_row::{ValueRow, ColumnType, TryFromValueRow, };
 mod odbc_type;
 pub mod thread_local;
 pub use odbc_type::*;
-
-// Re-export used chrono types and traits so this is ready usable
-#[cfg(feature = "chrono")]
-pub use value::{NaiveDate, NaiveDateTime, NaiveTime};
-#[cfg(feature = "chrono")]
-pub use value::{Datelike, Timelike};
 
 // TODO
 // * Prepared statement cache:

@@ -4,9 +4,9 @@ use std::error::Error;
 use std::fmt;
 
 #[cfg(feature = "chrono")]
-pub use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 #[cfg(feature = "chrono")]
-pub use chrono::{Datelike, Timelike};
+use chrono::{Datelike, Timelike};
 
 /// Representation of every supported column value.
 #[derive(Clone, PartialEq)]
