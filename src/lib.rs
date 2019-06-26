@@ -52,7 +52,7 @@ for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar'
 // [Some(String("foo bar")), Some(Tinyint(32))]
 ```
 
-Create parametrized query and execute with bound parameters
+Using prepared statements and parametrized queries
 -------------
 
 ```
@@ -65,34 +65,37 @@ let mut db = Odbc::connect(&connection_string).expect("failed to connect to data
 // Handle statically guards access to connection and provides query functionality
 let mut db = db.handle();
 
-let statement1 = db
-    .prepare("SELECT ?")
-    .expect("prepare statement1");
+let prepared_statement = db
+    .prepare("SELECT 'hello world' AS foo, CAST(42 AS INTEGER) AS bar, CAST(10000000 AS BIGINT) AS baz")
+    .expect("prepare prepared_statement");
 
-let statement3 = db
-    .prepare("SELECT CAST(? AS TEXT) AS foo, CAST(? AS INTEGER) AS bar, CAST(? AS BIGINT) AS baz")
-    .expect("prepare statement3");
+let parametrized_query = db
+    .prepare("SELECT ?, ?, ?")
+    .expect("prepare parametrized_query");
 
-// Bind string and execute
+
+// Database can infer schema of prepared statement
+println!("{:?}", prepared_statement.schema());
+// Prints:
+// Ok([ColumnType { value_type: String, nullable: false, name: "foo" }, ColumnType { value_type: Integer, nullable: true, name: "bar" }, ColumnType { value_type: Bigint, nullable: true, name: "baz" }])
+
+
+// Execute prepared statement without binding parameters
 let result_set = db
-    .execute_with_parameters::<ValueRow, _>(statement1, |q| {
-        q.bind(&"hello world")
-    })
+    .execute::<ValueRow>(prepared_statement)
     .expect("failed to run query");
 
+// Note that in this example prepared_statement will be dropped with the result_set iterator and cannot be reused
 for row in result_set {
     println!("{:?}", row.expect("failed to fetch row"))
 }
 // Prints:
-// [Some(String("hello world"))
+// [Some(String("hello world")), Some(Integer(42)), Some(Bigint(10000000))]
 
-// Database inferred schema information is available
-println!("{:?}", statement3.schema());
-// Prints:
-// Ok([ColumnType { value_type: String, nullable: true, name: "foo" }, ColumnType { value_type: Integer, nullable: true, name: "bar" }, ColumnType { value_type: Bigint, nullable: true, name: "baz" }])
 
-let result_set = db
-    .execute_with_parameters::<ValueRow, _>(statement3, |q| {
+// Execute parametrized query by binding parameters to statement
+let mut result_set = db
+    .execute_with_parameters::<ValueRow, _>(parametrized_query, |q| {
         q
             .bind(&"hello world")?
             .bind(&43)?
@@ -100,11 +103,31 @@ let result_set = db
     })
     .expect("failed to run query");
 
-for row in result_set {
+// Passing &mut reference so we don't loose access to result_set
+for row in &mut result_set {
     println!("{:?}", row.expect("failed to fetch row"))
 }
 // Prints:
 // [Some(String("hello world")), Some(Integer(43)), Some(Bigint(1000000))]
+
+// Get back the statement for later use
+let parametrized_query = result_set.close().expect("failed to close result set");
+
+// Bind new set of parameters to prepared statement
+let mut result_set = db
+    .execute_with_parameters::<ValueRow, _>(parametrized_query, |q| {
+        q
+            .bind(&"foo bar")?
+            .bind(&99)?
+            .bind(&2_000_000)
+    })
+    .expect("failed to run query");
+
+for row in &mut result_set {
+    println!("{:?}", row.expect("failed to fetch row"))
+}
+// Prints:
+// [Some(String("foo bar")), Some(Integer(99)), Some(Bigint(2000000))]
 ```
 !*/
 
@@ -141,7 +164,7 @@ pub use odbc_type::*;
 
 // TODO
 // * use impl Bind function to avoid need of F type in execute_with_parameters
-// * what to do with prepared statement reclamation?
+// ** When ResultSet is done it will return the PreparedStatement back to Option<> in the Handle
 // * Prepared statement cache:
 // ** db.with_statement_cache() -> StatementCache
 // ** sc.query(str) - direct query
