@@ -178,9 +178,9 @@ let mut connection = Odbc::connect(&connection_string).expect("failed to connect
 let mut db = connection.handle();
 
 // Get single row single column value
-println!("{}", db.query::<NaiveDateTime>("SELECT CAST('2019-05-03 13:21:33.749' AS DATETIME)").expect("failed to run query").single().expect("failed to fetch row"));
+println!("{}", db.query::<NaiveDateTime>("SELECT CAST('2019-05-03 13:21:33.749' AS DATETIME2)").expect("failed to run query").single().expect("failed to fetch row"));
 // Prints:
-// 2019-05-03 13:21:33.750
+// 2019-05-03 13:21:33.749
 # }
 
 ```
