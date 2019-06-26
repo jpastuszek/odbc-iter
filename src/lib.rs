@@ -1,3 +1,113 @@
+/*!
+`odbc-iter` is Rust high level database access library based on `odbc` crate.
+
+With this library you can:
+* connect to any database supporting ODBC (e.g. via `unixodbc` library and ODBC database driver),
+* run one-off, prepared or parametrized queries,
+* iterate result set via standard `Iterator` interface with automatically converted rows into tuples of Rust standard types or custom types by implementing a trait,
+* create thread local connections for multithreaded applications.
+
+Example usage
+=============
+
+Connect and run one-off queries with row type conversion
+-------------
+
+```
+use odbc_iter::{Odbc, ValueRow};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
+let mut db = Odbc::connect(&connection_string).expect("failed to connect to database");
+
+// Handle statically guards access to connection and provides query functionality
+let mut db = db.handle();
+
+// Get single row single column value
+println!("{}", db.query::<String>("SELECT 'hello world'").expect("failed to run query").single().expect("failed to fetch row"));
+
+// Iterate rows with single column
+for row in db.query::<String>("SELECT 'hello world' UNION SELECT 'foo bar'").expect("failed to run query") {
+    println!("{}", row.expect("failed to fetch row"))
+}
+// Prints:
+// hello world
+// foo bar
+
+// Iterate rows multiple columns
+for row in db.query::<(String, i8)>("SELECT 'hello world', CAST(24 AS TINYINT) UNION SELECT 'foo bar', CAST(32 AS TINYINT)").expect("failed to run query") {
+    let (string, number) = row.expect("failed to fetch row");
+    println!("{} {}", string, number);
+}
+// Prints:
+// hello world 24
+// foo bar 32
+
+// Iterate rows dynamic `ValueRow` type that can represent any supported database row
+for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar', 32").expect("failed to run query") {
+    println!("{:?}", row.expect("failed to fetch row"))
+}
+// Prints:
+// [Some(String("hello world")), Some(Tinyint(24))]
+// [Some(String("foo bar")), Some(Tinyint(32))]
+```
+
+Create parametrized query and execute with bound parameters
+-------------
+
+```
+use odbc_iter::{Odbc, ValueRow};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
+let mut db = Odbc::connect(&connection_string).expect("failed to connect to database");
+
+// Handle statically guards access to connection and provides query functionality
+let mut db = db.handle();
+
+let statement1 = db
+    .prepare("SELECT ?")
+    .expect("prepare statement1");
+
+let statement3 = db
+    .prepare("SELECT CAST(? AS TEXT) AS foo, CAST(? AS INTEGER) AS bar, CAST(? AS BIGINT) AS baz")
+    .expect("prepare statement3");
+
+// Bind string and execute
+let result_set = db
+    .execute_with_parameters::<ValueRow, _>(statement1, |q| {
+        q.bind(&"hello world")
+    })
+    .expect("failed to run query");
+
+for row in result_set {
+    println!("{:?}", row.expect("failed to fetch row"))
+}
+// Prints:
+// [Some(String("hello world"))
+
+// Database inferred schema information is available
+println!("{:?}", statement3.schema());
+// Prints:
+// Ok([ColumnType { value_type: String, nullable: true, name: "foo" }, ColumnType { value_type: Integer, nullable: true, name: "bar" }, ColumnType { value_type: Bigint, nullable: true, name: "baz" }])
+
+let result_set = db
+    .execute_with_parameters::<ValueRow, _>(statement3, |q| {
+        q
+            .bind(&"hello world")?
+            .bind(&43)?
+            .bind(&1_000_000)
+    })
+    .expect("failed to run query");
+
+for row in result_set {
+    println!("{:?}", row.expect("failed to fetch row"))
+}
+// Prints:
+// [Some(String("hello world")), Some(Integer(43)), Some(Bigint(1000000))]
+```
+!*/
+
 use error_context::prelude::*;
 use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
@@ -30,6 +140,8 @@ pub mod thread_local;
 pub use odbc_type::*;
 
 // TODO
+// * use impl Bind function to avoid need of F type in execute_with_parameters
+// * what to do with prepared statement reclamation?
 // * Prepared statement cache:
 // ** db.with_statement_cache() -> StatementCache
 // ** sc.query(str) - direct query
@@ -74,7 +186,7 @@ impl From<ErrorContext<DiagnosticRecord, &'static str>> for OdbcError {
 }
 
 /// Errors related to execution of queries.
-/// 
+///
 /// `OdbcError` and `DataAccessError` can be converted into `QueryError`.
 #[derive(Debug)]
 pub enum QueryError {
@@ -141,7 +253,7 @@ impl From<DataAccessError> for QueryError {
 }
 
 /// Errors related to data access of query result set.
-/// 
+///
 /// This error can happen when iterating rows of executed query result set.
 /// For convenience this error can be converted into `QueryError`.
 #[derive(Debug)]
@@ -309,7 +421,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 }
 
 /// Iterator over result set rows.
-/// 
+///
 /// Items of this iterator can be of any type that implements `TryFromValueRow` that includes common Rust types and tuples.
 pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
@@ -741,8 +853,8 @@ impl<'h> PreparedStatement<'h> {
 }
 
 /// ODBC environment entry point.
-/// 
-/// There should be only one object of this type in your program. 
+///
+/// There should be only one object of this type in your program.
 /// It is stored as global static and accessed via associated static functions.
 pub struct Odbc {
     environment: Environment<Version3>,
@@ -783,7 +895,7 @@ impl Odbc {
 
     /// Initialize global static ODBC environment now.
     /// After this was called call to `list_drivers()` will panic.
-    /// Connecting to a database will also initialize the environment. 
+    /// Connecting to a database will also initialize the environment.
     /// This function will panic if there was a problem crating ODBC environment.
     pub fn initialize() {
         lazy_static::initialize(&ODBC);
@@ -851,7 +963,7 @@ impl fmt::Debug for Connection {
 }
 
 /// Blocks access to `Connection` for duration of query.
-/// 
+///
 /// Statically ensures that query result set is consumed before next query can be executed on this connection.
 #[derive(Debug)]
 pub struct Handle<'c>(&'c Connection);
