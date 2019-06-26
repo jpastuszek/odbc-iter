@@ -177,18 +177,35 @@ let mut connection = Odbc::connect(&connection_string).expect("failed to connect
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
 
-// Get single row single column value
+// Get `chrono::NaiveDateTime` value
 println!("{}", db.query::<NaiveDateTime>("SELECT CAST('2019-05-03 13:21:33.749' AS DATETIME2)").expect("failed to run query").single().expect("failed to fetch row"));
 // Prints:
 // 2019-05-03 13:21:33.749
 # }
-
 ```
 
-Converting column values to `JSON` with MonetDB (with "serde_json" feature)
+Query JSON column from MonetDB (with "serde_json" feature)
 -------------
 
-TBD
+```rust
+# #[cfg(feature = "serde_json")]
+# #[cfg(feature = "test-monetdb")]
+# {
+use odbc_iter::{Odbc, Value};
+
+// Connect to database using connection string
+let connection_string = std::env::var("MONETDB_ODBC_CONNECTION").expect("MONETDB_ODBC_CONNECTION environment not set");
+let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+
+// Handle statically guards access to connection and provides query functionality
+let mut db = connection.handle();
+
+// Get `Value::Json` variant containing `serde_json::Value` object
+println!("{}", db.query::<Value>(r#"SELECT CAST('{ "foo": 42 }' AS JSON)"#).expect("failed to run query").single().expect("failed to fetch row"));
+// Prints:
+// {"foo":42}
+# }
+```
 
 Serializing `Value` and `ValueRow` using `serde` (with "serde" feature)
 -------------
