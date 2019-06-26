@@ -202,7 +202,7 @@ use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
     Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord, DriverInfo,
-    Environment, NoResult, ResultSetState, Statement, Version3,
+    Environment, NoResult, ResultSetState, Statement, Version3, OdbcType, ffi
 };
 use regex::Regex;
 use std::convert::TryFrom;
@@ -214,9 +214,7 @@ use std::string::FromUtf16Error;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 
-// Allow for custom OdbcType impl for binning
-pub use odbc::ffi;
-pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
+pub use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 // ResultSet can be parametrized with this types
 pub use odbc::{Executed, Prepared};
 
@@ -224,9 +222,8 @@ mod value;
 pub use value::{Value, ValueType, AsNullable, NullableValue, TryFromValue};
 mod value_row;
 pub use value_row::{ValueRow, ColumnType, TryFromValueRow, };
-mod odbc_type;
 pub mod thread_local;
-pub use odbc_type::*;
+pub mod odbc_type;
 
 // TODO
 // * Prepared statement cache:

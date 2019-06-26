@@ -1,12 +1,14 @@
 //! Extra types that represent SQL data values but with extra from/to impls that implement `OdbcType` so they can be bound to query parameter
+
+/// Allow for custom OdbcType impl for binning
+pub use odbc::{ffi, OdbcType};
+
 #[cfg(feature = "chrono")]
-pub mod sql_timestamp {
+mod sql_timestamp {
+    use super::*;
     use chrono::naive::{NaiveDate, NaiveDateTime};
     use chrono::{Datelike, Timelike};
     use odbc::SqlTimestamp;
-
-    pub use odbc::ffi;
-    pub use odbc::OdbcType;
 
     /// `SqlTimestamp` type that can be created from number of seconds since epoch as represented by `f64` value.
     #[derive(Debug)]
