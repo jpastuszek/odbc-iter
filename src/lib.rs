@@ -155,9 +155,9 @@ pub use odbc::{OdbcType, SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 pub use odbc::{Executed, Prepared};
 
 mod value;
-pub use value::{AsNullable, NullableValue, Value, ValueType};
+pub use value::{Value, ValueType, AsNullable, NullableValue, TryFromValue};
 mod value_row;
-pub use value_row::{ColumnType, TryFromValueRow, ValueRow};
+pub use value_row::{ValueRow, ColumnType, TryFromValueRow, };
 mod odbc_type;
 pub mod thread_local;
 pub use odbc_type::*;
