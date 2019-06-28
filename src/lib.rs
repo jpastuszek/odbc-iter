@@ -242,7 +242,7 @@ use odbc::{
 };
 use odbc::ffi::SqlDataType;
 use regex::Regex;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -843,15 +843,21 @@ where
     }
 }
 
+// TODO: consume ColumnDescriptor
 pub struct Column<'r, 's, 'c, S> {
     descriptor: &'r ColumnDescriptor,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
+    utf_16_strings: bool,
 }
 
 impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     fn into<T: odbc::OdbcType<'r>>(self) -> Result<Option<T>, DiagnosticRecord> {
         self.cursor.get_data::<T>(self.index + 1)
+    }
+
+    pub fn column_type(&self) -> Result<ColumnType, UnsupportedSqlDataType> {
+        self.descriptor.clone().try_into()
     }
 
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
@@ -942,14 +948,14 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_string(self, utf_16_strings: bool) -> Result<Option<String>, DataAccessError> {
+    pub fn as_string(self) -> Result<Option<String>, DataAccessError> {
         use SqlDataType::*;
         Ok(match self.descriptor.data_type {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
                 self.into::<String>()?
             }
             SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
-                if utf_16_strings {
+                if self.utf_16_strings {
                     //TODO: map + transpose
                     if let Some(bytes) = self.into::<&[u16]>()? {
                         Some(String::from_utf16(bytes)
@@ -1056,94 +1062,23 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
         }
     }
 
-    fn finalize(&self) -> Result<(), DataAccessError> {
-        if self.index != self.columns {
-            return Err(DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
-                requested: self.index,
-                queried: self.columns,
-            }))
-        }
-        Ok(())
-    }
+    // can this be Iterator?
+    pub fn next<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S>> {
+        self.odbc_schema.get(self.index as usize).map(move |descriptor| {
+            let column = Column {
+                descriptor,
+                cursor: &mut self.cursor,
+                index: self.index,
+                utf_16_strings: self.utf_16_strings,
+            };
 
-    fn next<'i>(&'i mut self) -> Result<Column<'i, 's, 'c, S>, DataAccessError> {
-        let descriptor = &self.odbc_schema.get(self.index as usize).ok_or(
-            DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
-                requested: self.index + 1,
-                queried: self.columns,
-            }))?;
-
-        let column = Column {
-            descriptor,
-            cursor: &mut self.cursor,
-            index: self.index,
-        };
-
-        self.index += 1;
-
-        Ok(column)
+            self.index += 1;
+            column
+        })
     }
 
     pub fn columns(&self) -> u16 {
         self.columns
-    }
-
-    /// Provides type of current column that can be shifted
-    pub fn column_type(&self) -> Result<Option<ColumnType>, UnsupportedSqlDataType> {
-        self.odbc_schema
-            .get(self.index as usize)
-            .map(|c| ColumnType::try_from(c.clone()))
-            .transpose()
-    }
-
-    pub fn shift_bool(&mut self) -> Result<Option<bool>, DataAccessError> {
-        self.next()?.as_bool()
-    }
-
-    pub fn shift_i8(&mut self) -> Result<Option<i8>, DataAccessError> {
-        self.next()?.as_i8()
-    }
-
-    pub fn shift_i16(&mut self) -> Result<Option<i16>, DataAccessError> {
-        self.next()?.as_i16()
-    }
-
-    pub fn shift_i32(&mut self) -> Result<Option<i32>, DataAccessError> {
-        self.next()?.as_i32()
-    }
-
-    pub fn shift_i64(&mut self) -> Result<Option<i64>, DataAccessError> {
-        self.next()?.as_i64()
-    }
-
-    pub fn shift_f32(&mut self) -> Result<Option<f32>, DataAccessError> {
-        self.next()?.as_f32()
-    }
-
-    pub fn shift_f64(&mut self) -> Result<Option<f64>, DataAccessError> {
-        self.next()?.as_f64()
-    }
-
-    pub fn shift_string(&mut self) -> Result<Option<String>, DataAccessError> {
-        let utf_16_strings = self.utf_16_strings;
-        self.next()?.as_string(utf_16_strings)
-    }
-
-    pub fn shift_timestamp(&mut self) -> Result<Option<SqlTimestamp>, DataAccessError> {
-        self.next()?.as_timestamp()
-    }
-
-    pub fn shift_date(&mut self) -> Result<Option<SqlDate>, DataAccessError> {
-        self.next()?.as_date()
-    }
-
-    pub fn shift_time(&mut self) -> Result<Option<SqlSsTime2>, DataAccessError> {
-        self.next()?.as_time()
-    }
-
-    #[cfg(feature = "serde_json")]
-    pub fn shift_json(&mut self) -> Result<Option<serde_json::Value>, DataAccessError> {
-        self.next()?.as_json()
     }
 }
 
@@ -1173,25 +1108,25 @@ where
             let mut value_row = Vec::with_capacity(row.columns() as usize);
 
             loop {
-                if let Some(column_type) = row.column_type()? {
+                if let Some(column) = row.next() {
+                    let column_type = column.column_type()?;
                     let value = match column_type.datum_type {
-                        DatumType::Bit => row.shift_bool()?.map(Value::from),
-                        DatumType::Tinyint => row.shift_i8()?.map(Value::from),
-                        DatumType::Smallint => row.shift_i16()?.map(Value::from),
-                        DatumType::Integer => row.shift_i32()?.map(Value::from),
-                        DatumType::Bigint => row.shift_i64()?.map(Value::from),
-                        DatumType::Float => row.shift_f32()?.map(Value::from),
-                        DatumType::Double => row.shift_f64()?.map(Value::from),
-                        DatumType::String => row.shift_string()?.map(Value::from),
-                        DatumType::Timestamp => row.shift_timestamp()?.map(Value::from),
-                        DatumType::Date => row.shift_date()?.map(Value::from),
-                        DatumType::Time => row.shift_time()?.map(Value::from),
+                        DatumType::Bit => column.as_bool()?.map(Value::from),
+                        DatumType::Tinyint => column.as_i8()?.map(Value::from),
+                        DatumType::Smallint => column.as_i16()?.map(Value::from),
+                        DatumType::Integer => column.as_i32()?.map(Value::from),
+                        DatumType::Bigint => column.as_i64()?.map(Value::from),
+                        DatumType::Float => column.as_f32()?.map(Value::from),
+                        DatumType::Double => column.as_f64()?.map(Value::from),
+                        DatumType::String => column.as_string()?.map(Value::from),
+                        DatumType::Timestamp => column.as_timestamp()?.map(Value::from),
+                        DatumType::Date => column.as_date()?.map(Value::from),
+                        DatumType::Time => column.as_time()?.map(Value::from),
                         #[cfg(feature = "serde_json")]
-                        DatumType::Json => row.shift_json()?.map(Value::from),
+                        DatumType::Json => column.as_json()?.map(Value::from),
                     };
                     value_row.push(value)
                 } else {
-                    row.finalize()?;
                     return Ok(value_row);
                 }
             }
