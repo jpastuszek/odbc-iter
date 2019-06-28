@@ -795,14 +795,6 @@ where
     }
 }
 
-pub struct Row<'r, 's, 'c, S> {
-    odbc_schema: &'r[ColumnDescriptor],
-    cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
-    index: u16,
-    columns: u16,
-    utf_16_strings: bool,
-}
-
 pub struct Column<'r, 's, 'c, S> {
     descriptor: &'r ColumnDescriptor,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
@@ -973,13 +965,13 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     #[cfg(feature = "serde_json")]
-    pub fn as_json(self) -> Result<serde_json::Value, DataAccessError> {
+    pub fn as_json(self) -> Result<Option<serde_json::Value>, DataAccessError> {
         Ok(match self.descriptor.data_type {
             queried @ SqlDataType::SQL_UNKNOWN_TYPE => {
-                if let Some(data) = self.into::<String>()? {
+                self.into::<String>()?.map(|data| {
                     // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
                     if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
-                        serde_json::from_str(&data)?
+                        serde_json::from_str(&data).map_err(Into::into)
                     } else {
                         //TOOD: better error?
                         return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
@@ -987,9 +979,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
                             queried,
                         }))
                     }
-                } else {
-                    serde_json::Value::Null
-                }
+                }).transpose()?
             }
             queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
                 requested: "JSON",
@@ -997,6 +987,15 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
             }))
         })
     }
+}
+
+//TODO: own the Cursor
+pub struct Row<'r, 's, 'c, S> {
+    odbc_schema: &'r[ColumnDescriptor],
+    cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
+    index: u16,
+    columns: u16,
+    utf_16_strings: bool,
 }
 
 impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
@@ -1011,15 +1010,14 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
     }
 
     fn next<'i>(&'i mut self) -> Result<Column<'i, 's, 'c, S>, DataAccessError> {
-        if self.index >= self.columns {
-            return Err(DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
+        let descriptor = &self.odbc_schema.get(self.index as usize).ok_or(
+            DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
                 requested: self.index + 1,
                 queried: self.columns,
-            }))
-        }
+            }))?;
 
         let column = Column {
-            descriptor: &self.odbc_schema[self.index as usize],
+            descriptor,
             cursor: self.cursor,
             index: self.index,
         };
@@ -1033,10 +1031,10 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
         self.columns
     }
 
-    /// Provides next column type information or None if there are no more columns
-    pub fn next_type(&self) -> Result<Option<ColumnType>, UnsupportedSqlDataType> {
+    /// Provides type of current column that can be shifted
+    pub fn column_type(&self) -> Result<Option<ColumnType>, UnsupportedSqlDataType> {
         self.odbc_schema
-            .get(self.index as usize + 1)
+            .get(self.index as usize)
             .map(|c| ColumnType::try_from(c.clone()))
             .transpose()
     }
@@ -1087,7 +1085,7 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
     }
 
     #[cfg(feature = "serde_json")]
-    pub fn shift_json(&mut self) -> Result<serde_json::Value, DataAccessError> {
+    pub fn shift_json(&mut self) -> Result<Option<serde_json::Value>, DataAccessError> {
         self.next()?.as_json()
     }
 }
@@ -1099,22 +1097,6 @@ where
     type Item = Result<V, DataAccessError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use SqlDataType::*;
-
-        fn cursor_get_data<'i, S, T: odbc::OdbcType<'i>>(
-            cursor: &'i mut odbc::Cursor<S>,
-            index: u16,
-        ) -> Result<Option<T>, DiagnosticRecord> {
-            cursor.get_data::<T>(index + 1)
-        }
-
-        fn cursor_get_value<'i, S, T: odbc::OdbcType<'i> + Into<Value>>(
-            cursor: &'i mut odbc::Cursor<S>,
-            index: u16,
-        ) -> Result<Option<Value>, DiagnosticRecord> {
-            cursor_get_data::<S, T>(cursor, index).map(|value| value.map(Into::into))
-        }
-
         let statement = match self.statement.as_mut().unwrap() {
             ExecutedStatement::HasResult(statement) => statement,
             ExecutedStatement::NoResult(_) => return None,
@@ -1126,86 +1108,43 @@ where
         }
 
         let utf_16_strings = self.utf_16_strings;
-
         let odbc_schema = &self.odbc_schema;
 
         statement.fetch().wrap_error_while("fetching row").transpose().map(|cursor| {
             let mut cursor = cursor?;
-            odbc_schema
-                .iter()
-                .enumerate()
-                .map(|(index, column_descriptor)| {
-                    trace!("Parsing column {}: {:?}", index, column_descriptor);
-                    Ok(match column_descriptor.data_type {
-                        SQL_EXT_TINYINT => {
-                            cursor_get_value::<S, i8>(&mut cursor, index as u16)?
-                        }
-                        SQL_SMALLINT => cursor_get_value::<S, i16>(&mut cursor, index as u16)?,
-                        SQL_INTEGER => cursor_get_value::<S, i32>(&mut cursor, index as u16)?,
-                        SQL_EXT_BIGINT => {
-                            cursor_get_value::<S, i64>(&mut cursor, index as u16)?
-                        }
-                        SQL_FLOAT => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
-                        SQL_REAL => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
-                        SQL_DOUBLE => cursor_get_value::<S, f64>(&mut cursor, index as u16)?,
-                        SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
-                            cursor_get_value::<S, String>(&mut cursor, index as u16)?
-                        }
-                        SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
-                            if utf_16_strings {
-                                //TODO: map + transpose
-                                if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
-                                    Some(Value::String(String::from_utf16(bytes)
-                                        .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                cursor_get_value::<S, String>(&mut cursor, index as u16)?
-                            }
-                        }
-                        SQL_TIMESTAMP => {
-                            cursor_get_value::<S, SqlTimestamp>(&mut cursor, index as u16)?
-                        }
-                        SQL_DATE => {
-                            cursor_get_value::<S, SqlDate>(&mut cursor, index as u16)?
-                        },
-                        SQL_TIME => {
-                            cursor_get_value::<S, SqlTime>(&mut cursor, index as u16)?
-                        }
-                        SQL_SS_TIME2 => {
-                            cursor_get_value::<S, SqlSsTime2>(&mut cursor, index as u16)?
-                        }
-                        SQL_EXT_BIT => {
-                            cursor_get_data::<S, u8>(&mut cursor, index as u16)?.map(|byte| Value::Bit(if byte == 0 { false } else { true }))
-                        }
-                        SQL_UNKNOWN_TYPE => {
-                            // handle MonetDB JSON type for now
-                            match cursor_get_data::<S, String>(&mut cursor, index as u16) {
-                                Err(err) => Err(err).wrap_error_while("trying to interpret SQL_UNKNOWN_TYPE as SQL_CHAR"),
-                                Ok(Some(data)) => {
-                                    #[cfg(feature = "serde_json")]
-                                    {
-                                        // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
-                                        if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
-                                            let json = serde_json::from_str(&data)?;
-                                            Ok(Some(Value::Json(json)))
-                                        } else {
-                                            Ok(Some(Value::String(data)))
-                                        }
-                                    }
-                                    #[cfg(not(feature = "serde_json"))]
-                                    {
-                                        Ok(Some(Value::String(data)))
-                                    }
-                                }
-                                Ok(None) => Ok(None)
-                            }?
-                        }
-                        _ => Err(UnsupportedSqlDataType(column_descriptor.data_type))?,
-                    })
-                })
-                .collect::<Result<Vec<Option<Value>>, _>>()
+            let mut row = Row {
+                odbc_schema: odbc_schema,
+                cursor: &mut cursor,
+                index: 0,
+                columns: odbc_schema.len() as u16,
+                utf_16_strings,
+            };
+
+            let mut value_row = Vec::with_capacity(odbc_schema.len());
+
+            loop {
+                if let Some(column_type) = row.column_type()? {
+                    let value = match column_type.value_type {
+                        ValueType::Bit => row.shift_bool()?.map(Value::from),
+                        ValueType::Tinyint => row.shift_i8()?.map(Value::from),
+                        ValueType::Smallint => row.shift_i16()?.map(Value::from),
+                        ValueType::Integer => row.shift_i32()?.map(Value::from),
+                        ValueType::Bigint => row.shift_i64()?.map(Value::from),
+                        ValueType::Float => row.shift_f32()?.map(Value::from),
+                        ValueType::Double => row.shift_f64()?.map(Value::from),
+                        ValueType::String => row.shift_string()?.map(Value::from),
+                        ValueType::Timestamp => row.shift_timestamp()?.map(Value::from),
+                        ValueType::Date => row.shift_date()?.map(Value::from),
+                        ValueType::Time => row.shift_time()?.map(Value::from),
+                        #[cfg(feature = "serde_json")]
+                        ValueType::Json => row.shift_json()?.map(Value::from),
+                    };
+                    value_row.push(value)
+                } else {
+                    row.finalize()?;
+                    return Ok(value_row);
+                }
+            }
         })
         .map(|v| v.and_then(|v| {
             // Verify that value types match schema
