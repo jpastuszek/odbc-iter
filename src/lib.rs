@@ -814,6 +814,8 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         self.cursor.get_data::<T>(self.index + 1)
     }
 
+    // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
+
     pub fn as_bool(self) -> Result<Option<bool>, DataAccessError> {
         Ok(match self.descriptor.data_type {
             SqlDataType::SQL_EXT_BIT => {
@@ -1125,91 +1127,86 @@ where
 
         let utf_16_strings = self.utf_16_strings;
 
-        // TODO: transpose?
-        match statement.fetch().wrap_error_while("fetching row") {
-            Err(err) => Some(Err(err.into())),
-            Ok(Some(mut cursor)) => {
-                Some(
-                    self.odbc_schema
-                        .iter()
-                        .enumerate()
-                        .map(|(index, column_descriptor)| {
-                            trace!("Parsing column {}: {:?}", index, column_descriptor);
-                            // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
-                            Ok(match column_descriptor.data_type {
-                                SQL_EXT_TINYINT => {
-                                    cursor_get_value::<S, i8>(&mut cursor, index as u16)?
+        let odbc_schema = &self.odbc_schema;
+
+        statement.fetch().wrap_error_while("fetching row").transpose().map(|cursor| {
+            let mut cursor = cursor?;
+            odbc_schema
+                .iter()
+                .enumerate()
+                .map(|(index, column_descriptor)| {
+                    trace!("Parsing column {}: {:?}", index, column_descriptor);
+                    Ok(match column_descriptor.data_type {
+                        SQL_EXT_TINYINT => {
+                            cursor_get_value::<S, i8>(&mut cursor, index as u16)?
+                        }
+                        SQL_SMALLINT => cursor_get_value::<S, i16>(&mut cursor, index as u16)?,
+                        SQL_INTEGER => cursor_get_value::<S, i32>(&mut cursor, index as u16)?,
+                        SQL_EXT_BIGINT => {
+                            cursor_get_value::<S, i64>(&mut cursor, index as u16)?
+                        }
+                        SQL_FLOAT => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
+                        SQL_REAL => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
+                        SQL_DOUBLE => cursor_get_value::<S, f64>(&mut cursor, index as u16)?,
+                        SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
+                            cursor_get_value::<S, String>(&mut cursor, index as u16)?
+                        }
+                        SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
+                            if utf_16_strings {
+                                //TODO: map + transpose
+                                if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
+                                    Some(Value::String(String::from_utf16(bytes)
+                                        .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?))
+                                } else {
+                                    None
                                 }
-                                SQL_SMALLINT => cursor_get_value::<S, i16>(&mut cursor, index as u16)?,
-                                SQL_INTEGER => cursor_get_value::<S, i32>(&mut cursor, index as u16)?,
-                                SQL_EXT_BIGINT => {
-                                    cursor_get_value::<S, i64>(&mut cursor, index as u16)?
-                                }
-                                SQL_FLOAT => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
-                                SQL_REAL => cursor_get_value::<S, f32>(&mut cursor, index as u16)?,
-                                SQL_DOUBLE => cursor_get_value::<S, f64>(&mut cursor, index as u16)?,
-                                SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
-                                    cursor_get_value::<S, String>(&mut cursor, index as u16)?
-                                }
-                                SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
-                                    if utf_16_strings {
-                                        //TODO: map + transpose
-                                        if let Some(bytes) = cursor_get_data::<S, &[u16]>(&mut cursor, index as u16)? {
-                                            Some(Value::String(String::from_utf16(bytes)
-                                                .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?))
+                            } else {
+                                cursor_get_value::<S, String>(&mut cursor, index as u16)?
+                            }
+                        }
+                        SQL_TIMESTAMP => {
+                            cursor_get_value::<S, SqlTimestamp>(&mut cursor, index as u16)?
+                        }
+                        SQL_DATE => {
+                            cursor_get_value::<S, SqlDate>(&mut cursor, index as u16)?
+                        },
+                        SQL_TIME => {
+                            cursor_get_value::<S, SqlTime>(&mut cursor, index as u16)?
+                        }
+                        SQL_SS_TIME2 => {
+                            cursor_get_value::<S, SqlSsTime2>(&mut cursor, index as u16)?
+                        }
+                        SQL_EXT_BIT => {
+                            cursor_get_data::<S, u8>(&mut cursor, index as u16)?.map(|byte| Value::Bit(if byte == 0 { false } else { true }))
+                        }
+                        SQL_UNKNOWN_TYPE => {
+                            // handle MonetDB JSON type for now
+                            match cursor_get_data::<S, String>(&mut cursor, index as u16) {
+                                Err(err) => Err(err).wrap_error_while("trying to interpret SQL_UNKNOWN_TYPE as SQL_CHAR"),
+                                Ok(Some(data)) => {
+                                    #[cfg(feature = "serde_json")]
+                                    {
+                                        // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
+                                        if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
+                                            let json = serde_json::from_str(&data)?;
+                                            Ok(Some(Value::Json(json)))
                                         } else {
-                                            None
+                                            Ok(Some(Value::String(data)))
                                         }
-                                    } else {
-                                        cursor_get_value::<S, String>(&mut cursor, index as u16)?
+                                    }
+                                    #[cfg(not(feature = "serde_json"))]
+                                    {
+                                        Ok(Some(Value::String(data)))
                                     }
                                 }
-                                SQL_TIMESTAMP => {
-                                    cursor_get_value::<S, SqlTimestamp>(&mut cursor, index as u16)?
-                                }
-                                SQL_DATE => {
-                                    cursor_get_value::<S, SqlDate>(&mut cursor, index as u16)?
-                                },
-                                SQL_TIME => {
-                                    cursor_get_value::<S, SqlTime>(&mut cursor, index as u16)?
-                                }
-                                SQL_SS_TIME2 => {
-                                    cursor_get_value::<S, SqlSsTime2>(&mut cursor, index as u16)?
-                                }
-                                SQL_EXT_BIT => {
-                                    cursor_get_data::<S, u8>(&mut cursor, index as u16)?.map(|byte| Value::Bit(if byte == 0 { false } else { true }))
-                                }
-                                SQL_UNKNOWN_TYPE => {
-                                    // handle MonetDB JSON type for now
-                                    match cursor_get_data::<S, String>(&mut cursor, index as u16) {
-                                        Err(err) => Err(err).wrap_error_while("trying to interpret SQL_UNKNOWN_TYPE as SQL_CHAR"),
-                                        Ok(Some(data)) => {
-                                            #[cfg(feature = "serde_json")]
-                                            {
-                                                // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
-                                                if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
-                                                    let json = serde_json::from_str(&data)?;
-                                                    Ok(Some(Value::Json(json)))
-                                                } else {
-                                                    Ok(Some(Value::String(data)))
-                                                }
-                                            }
-                                            #[cfg(not(feature = "serde_json"))]
-                                            {
-                                                Ok(Some(Value::String(data)))
-                                            }
-                                        }
-                                        Ok(None) => Ok(None)
-                                    }?
-                                }
-                                _ => Err(UnsupportedSqlDataType(column_descriptor.data_type))?,
-                            })
-                        })
-                        .collect::<Result<Vec<Option<Value>>, _>>(),
-                )
-            }
-            Ok(None) => None,
-        }
+                                Ok(None) => Ok(None)
+                            }?
+                        }
+                        _ => Err(UnsupportedSqlDataType(column_descriptor.data_type))?,
+                    })
+                })
+                .collect::<Result<Vec<Option<Value>>, _>>()
+        })
         .map(|v| v.and_then(|v| {
             // Verify that value types match schema
             debug_assert!(v.iter().map(|v| v.as_ref().map(|v| v.value_type())).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.value_type } else { true }));
