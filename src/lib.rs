@@ -264,8 +264,19 @@ pub mod odbc_type;
 
 // TODO
 // * move stuff to own files - this file is way too long
+// ** row - Row & Column types that work with odbc::Cursor to fetch Rust types
+// ** value & value_row - dynamic representation of all Rust types suported by row module
+// ** result_set - Iterator that uses row module to convert types
+// ** query - Connection, Handle and QueryError types that work with queries, stored proces etc.
+// ** lib - Odbc environemnt, OdbcError and all other modules put together
 // * avoid alocation of ValueRow when converting to Rust types
-// ** Use wrapper around Cursor and pass that to TryFromRow/Value
+// ** don't pass ColumnType (schema) to TryFromValueRow as we won't need it there
+// ** crate TryFromRow and TryFromColumn traits that get ColumnType (schema)
+// ** move all test that query from ValueRow to here
+// ** redo conversion test in ValueRow using only that modules functions (no need to query)
+// ** implement same conversions as ValueRow has on top of the TryFromRow and TryFromColumn traits
+// ** implement TryFromColumn for Value and TryFromRow fror ValueRow
+// ** use TryFromRow trait in the next() function of ResultSet
 // * Prepared statement cache:
 // ** db.with_statement_cache() -> StatementCache
 // ** sc.query(str) - direct query
