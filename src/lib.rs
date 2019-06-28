@@ -843,7 +843,6 @@ where
     }
 }
 
-// TODO: consume ColumnDescriptor
 pub struct Column<'r, 's, 'c, S> {
     descriptor: &'r ColumnDescriptor,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
@@ -1062,8 +1061,7 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
         }
     }
 
-    // can this be Iterator?
-    pub fn next<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S>> {
+    pub fn shift_column<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S>> {
         self.odbc_schema.get(self.index as usize).map(move |descriptor| {
             let column = Column {
                 descriptor,
@@ -1108,7 +1106,7 @@ where
             let mut value_row = Vec::with_capacity(row.columns() as usize);
 
             loop {
-                if let Some(column) = row.next() {
+                if let Some(column) = row.shift_column() {
                     let column_type = column.column_type()?;
                     let value = match column_type.datum_type {
                         DatumType::Bit => column.as_bool()?.map(Value::from),
