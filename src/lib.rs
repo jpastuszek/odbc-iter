@@ -264,7 +264,6 @@ pub mod odbc_type;
 
 // TODO
 // * move stuff to own files - this file is way too long
-// ** row - Row & Column types that work with odbc::Cursor to fetch Rust types
 // ** value & value_row - dynamic representation of all Rust types suported by row module
 // ** result_set - Iterator that uses row module to convert types
 // ** query - Connection, Handle and QueryError types that work with queries, stored proces etc.
