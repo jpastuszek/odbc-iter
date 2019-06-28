@@ -256,9 +256,9 @@ pub use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 pub use odbc::{Executed, Prepared};
 
 mod value;
-pub use value::{Value, ValueType, AsNullable, NullableValue, TryFromValue};
+pub use value::{Value, AsNullable, NullableValue, TryFromValue};
 mod value_row;
-pub use value_row::{ValueRow, ColumnType, TryFromValueRow, };
+pub use value_row::{ValueRow, TryFromValueRow};
 pub mod thread_local;
 pub mod odbc_type;
 
@@ -510,6 +510,55 @@ impl fmt::Display for UnsupportedSqlDataType {
 }
 
 impl Error for UnsupportedSqlDataType {}
+
+/// Description of column type, name and nullability properties used to represent row schema.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnType {
+    pub value_type: ValueType,
+    pub nullable: bool,
+    pub name: String,
+}
+
+//TODO: move along with Row/Column types
+/// Types of values that `Value` can represent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ValueType {
+    Bit,
+    Tinyint,
+    Smallint,
+    Integer,
+    Bigint,
+    Float,
+    Double,
+    String,
+    Timestamp,
+    Date,
+    Time,
+    #[cfg(feature = "serde_json")]
+    Json,
+}
+
+impl ValueType {
+    /// Static string describing type of value in `Value`.
+    pub fn description(&self) -> &'static str {
+        match self {
+            ValueType::Bit => "BIT",
+            ValueType::Tinyint => "TINYINT",
+            ValueType::Smallint => "SMALLINT",
+            ValueType::Integer => "INTEGER",
+            ValueType::Bigint => "BIGINT",
+            ValueType::Float => "FLOAT",
+            ValueType::Double => "DOUBLE",
+            ValueType::String => "STRING",
+            ValueType::Timestamp => "TIMESTAMP",
+            ValueType::Date => "DATE",
+            ValueType::Time => "TIME",
+            #[cfg(feature = "serde_json")]
+            ValueType::Json => "JSON",
+        }
+    }
+}
+
 
 impl TryFrom<ColumnDescriptor> for ColumnType {
     type Error = UnsupportedSqlDataType;
@@ -989,7 +1038,6 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 }
 
-//TODO: own the Cursor
 pub struct Row<'r, 's, 'c, S> {
     odbc_schema: &'r[ColumnDescriptor],
     cursor: odbc::Cursor<'s, 'c, 'c, S>,

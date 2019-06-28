@@ -1,4 +1,5 @@
-use crate::value::{TryFromValue, Value, ValueType};
+use crate::ColumnType;
+use crate::value::{TryFromValue, Value};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
@@ -7,14 +8,6 @@ use std::fmt;
 ///
 /// This objects are constructed from row data returned by ODBC library and can be further converted to types implementing `TryFromValueRow`/`TryFromValue` traits.
 pub type ValueRow = Vec<Option<Value>>;
-
-/// Description of column type, name and nullability properties used to represent row schema.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColumnType {
-    pub value_type: ValueType,
-    pub nullable: bool,
-    pub name: String,
-}
 
 // Note: TryFrom/TryInto cannot be implemented since we need to own the trait
 

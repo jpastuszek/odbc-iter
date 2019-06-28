@@ -2,6 +2,7 @@ use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
+use crate::ValueType;
 
 #[cfg(feature = "chrono")]
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -425,46 +426,6 @@ impl fmt::Debug for Value {
                 .finish(),
             #[cfg(feature = "serde_json")]
             Value::Json(ref j) => f.debug_tuple("Json").field(j).finish(),
-        }
-    }
-}
-
-//TODO: move along with Row/Column types
-/// Types of values that `Value` can represent.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ValueType {
-    Bit,
-    Tinyint,
-    Smallint,
-    Integer,
-    Bigint,
-    Float,
-    Double,
-    String,
-    Timestamp,
-    Date,
-    Time,
-    #[cfg(feature = "serde_json")]
-    Json,
-}
-
-impl ValueType {
-    /// Static string describing type of value in `Value`.
-    pub fn description(&self) -> &'static str {
-        match self {
-            ValueType::Bit => "BIT",
-            ValueType::Tinyint => "TINYINT",
-            ValueType::Smallint => "SMALLINT",
-            ValueType::Integer => "INTEGER",
-            ValueType::Bigint => "BIGINT",
-            ValueType::Float => "FLOAT",
-            ValueType::Double => "DOUBLE",
-            ValueType::String => "STRING",
-            ValueType::Timestamp => "TIMESTAMP",
-            ValueType::Date => "DATE",
-            ValueType::Time => "TIME",
-            #[cfg(feature = "serde_json")]
-            ValueType::Json => "JSON",
         }
     }
 }
