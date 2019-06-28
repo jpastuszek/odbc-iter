@@ -77,7 +77,7 @@ let parametrized_query = db
 // Database can infer schema of prepared statement
 println!("{:?}", prepared_statement.schema());
 // Prints:
-// Ok([ColumnType { value_type: String, nullable: false, name: "foo" }, ColumnType { value_type: Integer, nullable: true, name: "bar" }, ColumnType { value_type: Bigint, nullable: true, name: "baz" }])
+// Ok([ColumnType { datum_type: String, nullable: false, name: "foo" }, ColumnType { datum_type: Integer, nullable: true, name: "bar" }, ColumnType { datum_type: Bigint, nullable: true, name: "baz" }])
 
 
 // Execute prepared statement without binding parameters
@@ -514,15 +514,14 @@ impl Error for UnsupportedSqlDataType {}
 /// Description of column type, name and nullability properties used to represent row schema.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnType {
-    pub value_type: ValueType,
+    pub datum_type: DatumType,
     pub nullable: bool,
     pub name: String,
 }
 
-//TODO: move along with Row/Column types
-/// Types of values that `Value` can represent.
+/// Types of values that column can be converted to.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ValueType {
+pub enum DatumType {
     Bit,
     Tinyint,
     Smallint,
@@ -538,23 +537,23 @@ pub enum ValueType {
     Json,
 }
 
-impl ValueType {
-    /// Static string describing type of value in `Value`.
+impl DatumType {
+    /// Static string describing type of column datum.
     pub fn description(&self) -> &'static str {
         match self {
-            ValueType::Bit => "BIT",
-            ValueType::Tinyint => "TINYINT",
-            ValueType::Smallint => "SMALLINT",
-            ValueType::Integer => "INTEGER",
-            ValueType::Bigint => "BIGINT",
-            ValueType::Float => "FLOAT",
-            ValueType::Double => "DOUBLE",
-            ValueType::String => "STRING",
-            ValueType::Timestamp => "TIMESTAMP",
-            ValueType::Date => "DATE",
-            ValueType::Time => "TIME",
+            DatumType::Bit => "BIT",
+            DatumType::Tinyint => "TINYINT",
+            DatumType::Smallint => "SMALLINT",
+            DatumType::Integer => "INTEGER",
+            DatumType::Bigint => "BIGINT",
+            DatumType::Float => "FLOAT",
+            DatumType::Double => "DOUBLE",
+            DatumType::String => "STRING",
+            DatumType::Timestamp => "TIMESTAMP",
+            DatumType::Date => "DATE",
+            DatumType::Time => "TIME",
             #[cfg(feature = "serde_json")]
-            ValueType::Json => "JSON",
+            DatumType::Json => "JSON",
         }
     }
 }
@@ -565,34 +564,34 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 
     fn try_from(column_descriptor: ColumnDescriptor) -> Result<ColumnType, UnsupportedSqlDataType> {
         use SqlDataType::*;
-        let value_type = match column_descriptor.data_type {
-            SQL_EXT_BIT => ValueType::Bit,
-            SQL_EXT_TINYINT => ValueType::Tinyint,
-            SQL_SMALLINT => ValueType::Smallint,
-            SQL_INTEGER => ValueType::Integer,
-            SQL_EXT_BIGINT => ValueType::Bigint,
-            SQL_FLOAT | SQL_REAL => ValueType::Float,
-            SQL_DOUBLE => ValueType::Double,
+        let datum_type = match column_descriptor.data_type {
+            SQL_EXT_BIT => DatumType::Bit,
+            SQL_EXT_TINYINT => DatumType::Tinyint,
+            SQL_SMALLINT => DatumType::Smallint,
+            SQL_INTEGER => DatumType::Integer,
+            SQL_EXT_BIGINT => DatumType::Bigint,
+            SQL_FLOAT | SQL_REAL => DatumType::Float,
+            SQL_DOUBLE => DatumType::Double,
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR | SQL_EXT_WCHAR | SQL_EXT_WVARCHAR
-            | SQL_EXT_WLONGVARCHAR => ValueType::String,
-            SQL_TIMESTAMP => ValueType::Timestamp,
-            SQL_DATE => ValueType::Date,
-            SQL_TIME | SQL_SS_TIME2 => ValueType::Time,
+            | SQL_EXT_WLONGVARCHAR => DatumType::String,
+            SQL_TIMESTAMP => DatumType::Timestamp,
+            SQL_DATE => DatumType::Date,
+            SQL_TIME | SQL_SS_TIME2 => DatumType::Time,
             SQL_UNKNOWN_TYPE => {
                 #[cfg(feature = "serde_json")]
                 {
-                    ValueType::Json
+                    DatumType::Json
                 }
                 #[cfg(not(feature = "serde_json"))]
                 {
-                    ValueType::String
+                    DatumType::String
                 }
             }
             _ => return Err(UnsupportedSqlDataType(column_descriptor.data_type)),
         };
 
         Ok(ColumnType {
-            value_type,
+            datum_type,
             nullable: column_descriptor.nullable.unwrap_or(true),
             name: column_descriptor.name,
         })
@@ -1175,20 +1174,20 @@ where
 
             loop {
                 if let Some(column_type) = row.column_type()? {
-                    let value = match column_type.value_type {
-                        ValueType::Bit => row.shift_bool()?.map(Value::from),
-                        ValueType::Tinyint => row.shift_i8()?.map(Value::from),
-                        ValueType::Smallint => row.shift_i16()?.map(Value::from),
-                        ValueType::Integer => row.shift_i32()?.map(Value::from),
-                        ValueType::Bigint => row.shift_i64()?.map(Value::from),
-                        ValueType::Float => row.shift_f32()?.map(Value::from),
-                        ValueType::Double => row.shift_f64()?.map(Value::from),
-                        ValueType::String => row.shift_string()?.map(Value::from),
-                        ValueType::Timestamp => row.shift_timestamp()?.map(Value::from),
-                        ValueType::Date => row.shift_date()?.map(Value::from),
-                        ValueType::Time => row.shift_time()?.map(Value::from),
+                    let value = match column_type.datum_type {
+                        DatumType::Bit => row.shift_bool()?.map(Value::from),
+                        DatumType::Tinyint => row.shift_i8()?.map(Value::from),
+                        DatumType::Smallint => row.shift_i16()?.map(Value::from),
+                        DatumType::Integer => row.shift_i32()?.map(Value::from),
+                        DatumType::Bigint => row.shift_i64()?.map(Value::from),
+                        DatumType::Float => row.shift_f32()?.map(Value::from),
+                        DatumType::Double => row.shift_f64()?.map(Value::from),
+                        DatumType::String => row.shift_string()?.map(Value::from),
+                        DatumType::Timestamp => row.shift_timestamp()?.map(Value::from),
+                        DatumType::Date => row.shift_date()?.map(Value::from),
+                        DatumType::Time => row.shift_time()?.map(Value::from),
                         #[cfg(feature = "serde_json")]
-                        ValueType::Json => row.shift_json()?.map(Value::from),
+                        DatumType::Json => row.shift_json()?.map(Value::from),
                     };
                     value_row.push(value)
                 } else {
@@ -1199,7 +1198,7 @@ where
         })
         .map(|v| v.and_then(|v| {
             // Verify that value types match schema
-            debug_assert!(v.iter().map(|v| v.as_ref().map(|v| v.value_type())).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.value_type } else { true }));
+            debug_assert!(v.iter().map(|v| v.as_ref().map(|v| v.datum_type())).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.datum_type } else { true }));
             TryFromValueRow::try_from_row(v, self.schema()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))
         }))
     }
@@ -2043,7 +2042,7 @@ pub mod tests {
         let schema = statement.schema().unwrap();
         assert_eq!(schema.len(), 4);
         assert_eq!(schema[1].nullable, true);
-        assert_eq!(schema[1].value_type, ValueType::Integer);
+        assert_eq!(schema[1].datum_type, DatumType::Integer);
     }
 
     #[cfg(feature = "test-hive")]
@@ -2344,6 +2343,6 @@ SELECT *;
             })
             .expect("failed to run query");
 
-        assert_eq!(format!("{:?}", result_set), "ResultSet { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_EXT_WVARCHAR, column_size: Some(1200), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_INTEGER, column_size: Some(10), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_EXT_BIT, column_size: Some(1), decimal_digits: None, nullable: Some(true) }], schema: [ColumnType { value_type: String, nullable: true, name: \"foo\" }, ColumnType { value_type: Integer, nullable: true, name: \"bar\" }, ColumnType { value_type: Bit, nullable: true, name: \"baz\" }], columns: 3, utf_16_strings: true }");
+        assert_eq!(format!("{:?}", result_set), "ResultSet { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_EXT_WVARCHAR, column_size: Some(1200), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_INTEGER, column_size: Some(10), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_EXT_BIT, column_size: Some(1), decimal_digits: None, nullable: Some(true) }], schema: [ColumnType { datum_type: String, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, nullable: true, name: \"baz\" }], columns: 3, utf_16_strings: true }");
     }
 }

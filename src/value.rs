@@ -2,7 +2,7 @@ use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
-use crate::ValueType;
+use crate::DatumType;
 
 #[cfg(feature = "chrono")]
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -212,21 +212,21 @@ impl Value {
     }
 
     /// Type of this value.
-    pub fn value_type(&self) -> ValueType {
+    pub fn datum_type(&self) -> DatumType {
         match self {
-            Value::Bit(_) => ValueType::Bit,
-            Value::Tinyint(_) => ValueType::Tinyint,
-            Value::Smallint(_) => ValueType::Smallint,
-            Value::Integer(_) => ValueType::Integer,
-            Value::Bigint(_) => ValueType::Bigint,
-            Value::Float(_) => ValueType::Float,
-            Value::Double(_) => ValueType::Double,
-            Value::String(_) => ValueType::String,
-            Value::Timestamp(_) => ValueType::Timestamp,
-            Value::Date(_) => ValueType::Date,
-            Value::Time(_) => ValueType::Time,
+            Value::Bit(_) => DatumType::Bit,
+            Value::Tinyint(_) => DatumType::Tinyint,
+            Value::Smallint(_) => DatumType::Smallint,
+            Value::Integer(_) => DatumType::Integer,
+            Value::Bigint(_) => DatumType::Bigint,
+            Value::Float(_) => DatumType::Float,
+            Value::Double(_) => DatumType::Double,
+            Value::String(_) => DatumType::String,
+            Value::Timestamp(_) => DatumType::Timestamp,
+            Value::Date(_) => DatumType::Date,
+            Value::Time(_) => DatumType::Time,
             #[cfg(feature = "serde_json")]
-            Value::Json(_) => ValueType::Json,
+            Value::Json(_) => DatumType::Json,
         }
     }
 }
@@ -522,7 +522,7 @@ macro_rules! try_from_value_copy {
                     value.ok_or_else(|| ValueConvertError::UnexpectedNullValue(stringify!($t)))?;
                 value.$f().ok_or_else(|| ValueConvertError::UnexpectedType {
                     expected: stringify!($t),
-                    got: value.value_type().description(),
+                    got: value.datum_type().description(),
                 })
             }
         }
@@ -574,7 +574,7 @@ macro_rules! try_from_value_owned {
                     .$f()
                     .map_err(|value| ValueConvertError::UnexpectedType {
                         expected: stringify!($t),
-                        got: value.value_type().description(),
+                        got: value.datum_type().description(),
                     })
             }
         }
@@ -588,7 +588,7 @@ macro_rules! try_from_value_owned {
                             .$f()
                             .map_err(|value| ValueConvertError::UnexpectedType {
                                 expected: stringify!($t),
-                                got: value.value_type().description(),
+                                got: value.datum_type().description(),
                             })
                     })
                     .transpose()
