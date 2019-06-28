@@ -41,10 +41,7 @@ impl fmt::Display for UnsupportedSqlDataType {
 
 impl Error for UnsupportedSqlDataType {}
 
-/// Errors related to data access of query result set.
-///
-/// This error can happen when iterating rows of executed query result set.
-/// For convenience this error can be converted into `QueryError`.
+/// Errors related to datum access of ODBC cursor.
 #[derive(Debug)]
 pub enum DatumAccessError {
     OdbcCursorError(DiagnosticRecord),
@@ -188,6 +185,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
     }
 }
 
+/// Represents SQL table column which can ba converted to Rust native type.
 pub struct Column<'r, 's, 'c, S> {
     column_type: &'r ColumnType,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
@@ -387,6 +385,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 }
 
+/// Represents SQL table row of Column objects.
 pub struct Row<'r, 's, 'c, S> {
     schema: &'r[ColumnType],
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
