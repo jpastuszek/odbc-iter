@@ -429,6 +429,7 @@ impl fmt::Debug for Value {
     }
 }
 
+//TODO: move along with Row/Column types
 /// Types of values that `Value` can represent.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueType {

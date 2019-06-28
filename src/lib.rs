@@ -969,6 +969,32 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
             }))
         })
     }
+
+    #[cfg(feature = "serde_json")]
+    pub fn as_json(self) -> Result<serde_json::Value, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            queried @ SqlDataType::SQL_UNKNOWN_TYPE => {
+                if let Some(data) = self.into::<String>()? {
+                    // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
+                    if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
+                        serde_json::from_str(&data)?
+                    } else {
+                        //TOOD: better error?
+                        return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                            requested: "JSON",
+                            queried,
+                        }))
+                    }
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "JSON",
+                queried,
+            }))
+        })
+    }
 }
 
 impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
@@ -1001,6 +1027,17 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
         Ok(column)
     }
 
+    pub fn columns(&self) -> u16 {
+        self.columns
+    }
+
+    /// Provides next column type information or None if there are no more columns
+    pub fn next_type(&self) -> Result<Option<ColumnType>, UnsupportedSqlDataType> {
+        self.odbc_schema
+            .get(self.index as usize + 1)
+            .map(|c| ColumnType::try_from(c.clone()))
+            .transpose()
+    }
 
     pub fn shift_bool(&mut self) -> Result<Option<bool>, DataAccessError> {
         self.next()?.as_bool()
@@ -1045,6 +1082,11 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
 
     pub fn shift_time(&mut self) -> Result<Option<SqlSsTime2>, DataAccessError> {
         self.next()?.as_time()
+    }
+
+    #[cfg(feature = "serde_json")]
+    pub fn shift_json(&mut self) -> Result<serde_json::Value, DataAccessError> {
+        self.next()?.as_json()
     }
 }
 
