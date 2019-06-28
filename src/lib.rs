@@ -242,7 +242,7 @@ use odbc::{
 };
 use odbc::ffi::SqlDataType;
 use regex::Regex;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -515,6 +515,7 @@ impl Error for UnsupportedSqlDataType {}
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnType {
     pub datum_type: DatumType,
+    pub odbc_type: SqlDataType,
     pub nullable: bool,
     pub name: String,
 }
@@ -592,6 +593,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 
         Ok(ColumnType {
             datum_type,
+            odbc_type: column_descriptor.data_type,
             nullable: column_descriptor.nullable.unwrap_or(true),
             name: column_descriptor.name,
         })
@@ -635,7 +637,6 @@ impl Error for ColumnNumberMismatch {}
 /// Items of this iterator can be of any type that implements `TryFromValueRow` that includes common Rust types and tuples.
 pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
-    odbc_schema: Vec<ColumnDescriptor>,
     schema: Vec<ColumnType>,
     columns: i16,
     utf_16_strings: bool,
@@ -645,7 +646,6 @@ pub struct ResultSet<'h, 'c, V, S> {
 impl<'h, 'c, V, S> fmt::Debug for ResultSet<'h, 'c, V, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ResultSet")
-            .field("odbc_schema", &self.odbc_schema)
             .field("schema", &self.schema)
             .field("columns", &self.columns)
             .field("utf_16_strings", &self.utf_16_strings)
@@ -726,13 +726,12 @@ where
 
         // convert schema here so that when iterating rows we can pass reference to it per row for row type conversion
         let schema = odbc_schema
-            .iter()
-            .map(|c| ColumnType::try_from(c.clone()))
+            .into_iter()
+            .map(TryFrom::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ResultSet {
             statement: Some(statement),
-            odbc_schema,
             schema,
             columns,
             phantom: PhantomData,
@@ -844,7 +843,7 @@ where
 }
 
 pub struct Column<'r, 's, 'c, S> {
-    descriptor: &'r ColumnDescriptor,
+    column_type: &'r ColumnType,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
     utf_16_strings: bool,
@@ -855,14 +854,14 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         self.cursor.get_data::<T>(self.index + 1)
     }
 
-    pub fn column_type(&self) -> Result<ColumnType, UnsupportedSqlDataType> {
-        self.descriptor.clone().try_into()
+    pub fn column_type(&self) -> &ColumnType {
+        self.column_type
     }
 
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
 
     pub fn as_bool(self) -> Result<Option<bool>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_BIT => {
                 self.into::<u8>()?
                     .map(|byte| if byte == 0 { false } else { true })
@@ -875,7 +874,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_i8(self) -> Result<Option<i8>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_TINYINT => {
                 self.into::<i8>()?
             }
@@ -887,7 +886,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_i16(self) -> Result<Option<i16>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_SMALLINT => {
                 self.into::<i16>()?
             }
@@ -899,7 +898,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_i32(self) -> Result<Option<i32>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_INTEGER => {
                 self.into::<i32>()?
             }
@@ -911,7 +910,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_i64(self) -> Result<Option<i64>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_BIGINT => {
                 self.into::<i64>()?
             }
@@ -923,7 +922,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_f32(self) -> Result<Option<f32>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_REAL |
             SqlDataType::SQL_FLOAT => {
                 self.into::<f32>()?
@@ -936,7 +935,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_f64(self) -> Result<Option<f64>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_DOUBLE => {
                 self.into::<f64>()?
             }
@@ -949,7 +948,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 
     pub fn as_string(self) -> Result<Option<String>, DataAccessError> {
         use SqlDataType::*;
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
                 self.into::<String>()?
             }
@@ -974,7 +973,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_timestamp(self) -> Result<Option<SqlTimestamp>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_TIMESTAMP => {
                 self.into::<SqlTimestamp>()?
             }
@@ -986,7 +985,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_date(self) -> Result<Option<SqlDate>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_DATE => {
                 self.into::<SqlDate>()?
             }
@@ -998,7 +997,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     pub fn as_time(self) -> Result<Option<SqlSsTime2>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_TIME=> {
                 self.into::<SqlTime>()?.map(|ss| SqlSsTime2 {
                     hour: ss.hour,
@@ -1019,7 +1018,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 
     #[cfg(feature = "serde_json")]
     pub fn as_json(self) -> Result<Option<serde_json::Value>, DataAccessError> {
-        Ok(match self.descriptor.data_type {
+        Ok(match self.column_type.odbc_type {
             queried @ SqlDataType::SQL_UNKNOWN_TYPE => {
                 self.into::<String>()?.map(|data| {
                     // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
@@ -1043,7 +1042,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 }
 
 pub struct Row<'r, 's, 'c, S> {
-    odbc_schema: &'r[ColumnDescriptor],
+    schema: &'r[ColumnType],
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
     columns: u16,
@@ -1051,20 +1050,20 @@ pub struct Row<'r, 's, 'c, S> {
 }
 
 impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
-    fn new(cursor: odbc::Cursor<'s, 'c, 'c, S>, odbc_schema: &'r[ColumnDescriptor], utf_16_strings: bool) -> Row<'r, 's, 'c, S> {
+    fn new(cursor: odbc::Cursor<'s, 'c, 'c, S>, schema: &'r[ColumnType], utf_16_strings: bool) -> Row<'r, 's, 'c, S> {
         Row {
-            odbc_schema: odbc_schema,
+            schema: schema,
             cursor: cursor,
             index: 0,
-            columns: odbc_schema.len() as u16,
+            columns: schema.len() as u16,
             utf_16_strings,
         }
     }
 
     pub fn shift_column<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S>> {
-        self.odbc_schema.get(self.index as usize).map(move |descriptor| {
+        self.schema.get(self.index as usize).map(move |column_type| {
             let column = Column {
-                descriptor,
+                column_type,
                 cursor: &mut self.cursor,
                 index: self.index,
                 utf_16_strings: self.utf_16_strings,
@@ -1098,17 +1097,16 @@ where
         }
 
         let utf_16_strings = self.utf_16_strings;
-        let odbc_schema = &self.odbc_schema;
+        let schema = &self.schema;
 
         statement.fetch().wrap_error_while("fetching row").transpose().map(|cursor| {
-            let mut row = Row::new(cursor?, odbc_schema, utf_16_strings);
+            let mut row = Row::new(cursor?, schema, utf_16_strings);
 
             let mut value_row = Vec::with_capacity(row.columns() as usize);
 
             loop {
                 if let Some(column) = row.shift_column() {
-                    let column_type = column.column_type()?;
-                    let value = match column_type.datum_type {
+                    let value = match column.column_type().datum_type {
                         DatumType::Bit => column.as_bool()?.map(Value::from),
                         DatumType::Tinyint => column.as_i8()?.map(Value::from),
                         DatumType::Smallint => column.as_i16()?.map(Value::from),
