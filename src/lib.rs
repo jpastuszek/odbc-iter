@@ -238,8 +238,9 @@ use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
     Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord, DriverInfo,
-    Environment, NoResult, ResultSetState, Statement, Version3, OdbcType, ffi
+    Environment, NoResult, ResultSetState, Statement, Version3, OdbcType
 };
+use odbc::ffi::SqlDataType;
 use regex::Regex;
 use std::convert::TryFrom;
 use std::error::Error;
@@ -262,6 +263,9 @@ pub mod thread_local;
 pub mod odbc_type;
 
 // TODO
+// * move stuff to own files - this file is way too long
+// * avoid alocation of ValueRow when converting to Rust types
+// ** Use wrapper around Cursor and pass that to TryFromRow/Value
 // * Prepared statement cache:
 // ** db.with_statement_cache() -> StatementCache
 // ** sc.query(str) - direct query
@@ -381,6 +385,8 @@ pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
     OdbcCursorError(DiagnosticRecord),
     UnsupportedSqlDataType(UnsupportedSqlDataType),
+    SqlDataTypeMismatch(SqlDataTypeMismatch),
+    ColumnNumberMismatch(ColumnNumberMismatch),
     FromRowError(Box<dyn Error>),
     FromUtf16Error(FromUtf16Error, &'static str),
     UnexpectedNumberOfRows(&'static str),
@@ -397,7 +403,9 @@ impl fmt::Display for DataAccessError {
             DataAccessError::OdbcCursorError(_) => {
                 write!(f, "failed to access data in ODBC cursor")
             }
-            DataAccessError::UnsupportedSqlDataType(_) => {
+            DataAccessError::UnsupportedSqlDataType(_) |
+            DataAccessError::SqlDataTypeMismatch(_) |
+            DataAccessError::ColumnNumberMismatch(_) => {
                 write!(f, "failed to handle data type conversion")
             }
             DataAccessError::FromRowError(_) => {
@@ -425,6 +433,8 @@ impl Error for DataAccessError {
             DataAccessError::OdbcError(err, _) => Some(err),
             DataAccessError::OdbcCursorError(err) => Some(err),
             DataAccessError::UnsupportedSqlDataType(err) => Some(err),
+            DataAccessError::SqlDataTypeMismatch(err) => Some(err),
+            DataAccessError::ColumnNumberMismatch(err) => Some(err),
             DataAccessError::FromRowError(err) => Some(err.as_ref()),
             DataAccessError::FromUtf16Error(err, _) => Some(err),
             DataAccessError::UnexpectedNumberOfRows(_) => None,
@@ -491,7 +501,7 @@ impl From<DiagnosticRecord> for BindError {
 
 /// This error can be returned if database provided column of type that currently cannot be mapped to `Value` type.
 #[derive(Debug)]
-pub struct UnsupportedSqlDataType(ffi::SqlDataType);
+pub struct UnsupportedSqlDataType(SqlDataType);
 
 impl fmt::Display for UnsupportedSqlDataType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -505,7 +515,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
     type Error = UnsupportedSqlDataType;
 
     fn try_from(column_descriptor: ColumnDescriptor) -> Result<ColumnType, UnsupportedSqlDataType> {
-        use odbc::ffi::SqlDataType::*;
+        use SqlDataType::*;
         let value_type = match column_descriptor.data_type {
             SQL_EXT_BIT => ValueType::Bit,
             SQL_EXT_TINYINT => ValueType::Tinyint,
@@ -539,6 +549,38 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
         })
     }
 }
+
+/// This error can be returned if database provided column type does not match type requested by
+/// client
+#[derive(Debug)]
+pub struct SqlDataTypeMismatch {
+    requested: &'static str,
+    queried: SqlDataType,
+}
+
+impl fmt::Display for SqlDataTypeMismatch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "requested SQL column data type '{:?}' does not match queried data type '{:?}'", self.requested, self.queried)
+    }
+}
+
+impl Error for SqlDataTypeMismatch {}
+
+/// This error can be returned if database provided row with less or more columns than requested by
+/// client
+#[derive(Debug)]
+pub struct ColumnNumberMismatch {
+    requested: u16,
+    queried: u16,
+}
+
+impl fmt::Display for ColumnNumberMismatch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "requested number of columns {} does not match queried row number of columns {}", self.requested, self.queried)
+    }
+}
+
+impl Error for ColumnNumberMismatch {}
 
 /// Iterator over result set rows.
 ///
@@ -753,6 +795,259 @@ where
     }
 }
 
+pub struct Row<'r, 's, 'c, S> {
+    odbc_schema: &'r[ColumnDescriptor],
+    cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
+    index: u16,
+    columns: u16,
+    utf_16_strings: bool,
+}
+
+pub struct Column<'r, 's, 'c, S> {
+    descriptor: &'r ColumnDescriptor,
+    cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
+    index: u16,
+}
+
+impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
+    fn into<T: odbc::OdbcType<'r>>(self) -> Result<Option<T>, DiagnosticRecord> {
+        self.cursor.get_data::<T>(self.index + 1)
+    }
+
+    pub fn as_bool(self) -> Result<Option<bool>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_EXT_BIT => {
+                self.into::<u8>()?
+                    .map(|byte| if byte == 0 { false } else { true })
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "BIT",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_i8(self) -> Result<Option<i8>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_EXT_TINYINT => {
+                self.into::<i8>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "TINYINT",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_i16(self) -> Result<Option<i16>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_SMALLINT => {
+                self.into::<i16>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "SMALLINT",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_i32(self) -> Result<Option<i32>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_INTEGER => {
+                self.into::<i32>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "INTEGER",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_i64(self) -> Result<Option<i64>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_EXT_BIGINT => {
+                self.into::<i64>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "BIGINT",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_f32(self) -> Result<Option<f32>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_REAL |
+            SqlDataType::SQL_FLOAT => {
+                self.into::<f32>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "FLOAT",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_f64(self) -> Result<Option<f64>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_DOUBLE => {
+                self.into::<f64>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "DOUBLE",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_string(self, utf_16_strings: bool) -> Result<Option<String>, DataAccessError> {
+        use SqlDataType::*;
+        Ok(match self.descriptor.data_type {
+            SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
+                self.into::<String>()?
+            }
+            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
+                if utf_16_strings {
+                    //TODO: map + transpose
+                    if let Some(bytes) = self.into::<&[u16]>()? {
+                        Some(String::from_utf16(bytes)
+                            .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?)
+                    } else {
+                        None
+                    }
+                } else {
+                    self.into::<String>()?
+                }
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "STRING",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_timestamp(self) -> Result<Option<SqlTimestamp>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_TIMESTAMP => {
+                self.into::<SqlTimestamp>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "TIMESTAMP",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_date(self) -> Result<Option<SqlDate>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_DATE => {
+                self.into::<SqlDate>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "DATE",
+                queried,
+            }))
+        })
+    }
+
+    pub fn as_time(self) -> Result<Option<SqlSsTime2>, DataAccessError> {
+        Ok(match self.descriptor.data_type {
+            SqlDataType::SQL_TIME=> {
+                self.into::<SqlTime>()?.map(|ss| SqlSsTime2 {
+                    hour: ss.hour,
+                    minute: ss.minute,
+                    second: ss.second,
+                    fraction: 0
+                })
+            }
+            SqlDataType::SQL_SS_TIME2 => {
+                self.into::<SqlSsTime2>()?
+            }
+            queried => return Err(DataAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                requested: "TIME",
+                queried,
+            }))
+        })
+    }
+}
+
+impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
+    fn finalize(&self) -> Result<(), DataAccessError> {
+        if self.index != self.columns {
+            return Err(DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
+                requested: self.index,
+                queried: self.columns,
+            }))
+        }
+        Ok(())
+    }
+
+    fn next<'i>(&'i mut self) -> Result<Column<'i, 's, 'c, S>, DataAccessError> {
+        if self.index >= self.columns {
+            return Err(DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
+                requested: self.index + 1,
+                queried: self.columns,
+            }))
+        }
+
+        let column = Column {
+            descriptor: &self.odbc_schema[self.index as usize],
+            cursor: self.cursor,
+            index: self.index,
+        };
+
+        self.index += 1;
+
+        Ok(column)
+    }
+
+
+    pub fn shift_bool(&mut self) -> Result<Option<bool>, DataAccessError> {
+        self.next()?.as_bool()
+    }
+
+    pub fn shift_i8(&mut self) -> Result<Option<i8>, DataAccessError> {
+        self.next()?.as_i8()
+    }
+
+    pub fn shift_i16(&mut self) -> Result<Option<i16>, DataAccessError> {
+        self.next()?.as_i16()
+    }
+
+    pub fn shift_i32(&mut self) -> Result<Option<i32>, DataAccessError> {
+        self.next()?.as_i32()
+    }
+
+    pub fn shift_i64(&mut self) -> Result<Option<i64>, DataAccessError> {
+        self.next()?.as_i64()
+    }
+
+    pub fn shift_f32(&mut self) -> Result<Option<f32>, DataAccessError> {
+        self.next()?.as_f32()
+    }
+
+    pub fn shift_f64(&mut self) -> Result<Option<f64>, DataAccessError> {
+        self.next()?.as_f64()
+    }
+
+    pub fn shift_string(&mut self) -> Result<Option<String>, DataAccessError> {
+        let utf_16_strings = self.utf_16_strings;
+        self.next()?.as_string(utf_16_strings)
+    }
+
+    pub fn shift_timestamp(&mut self) -> Result<Option<SqlTimestamp>, DataAccessError> {
+        self.next()?.as_timestamp()
+    }
+
+    pub fn shift_date(&mut self) -> Result<Option<SqlDate>, DataAccessError> {
+        self.next()?.as_date()
+    }
+
+    pub fn shift_time(&mut self) -> Result<Option<SqlSsTime2>, DataAccessError> {
+        self.next()?.as_time()
+    }
+}
+
 impl<'h, 'c: 'h, V, S> Iterator for ResultSet<'h, 'c, V, S>
 where
     V: TryFromValueRow,
@@ -760,7 +1055,7 @@ where
     type Item = Result<V, DataAccessError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use odbc::ffi::SqlDataType::*;
+        use SqlDataType::*;
 
         fn cursor_get_data<'i, S, T: odbc::OdbcType<'i>>(
             cursor: &'i mut odbc::Cursor<S>,
