@@ -992,13 +992,23 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 //TODO: own the Cursor
 pub struct Row<'r, 's, 'c, S> {
     odbc_schema: &'r[ColumnDescriptor],
-    cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
+    cursor: odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
     columns: u16,
     utf_16_strings: bool,
 }
 
 impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
+    fn new(cursor: odbc::Cursor<'s, 'c, 'c, S>, odbc_schema: &'r[ColumnDescriptor], utf_16_strings: bool) -> Row<'r, 's, 'c, S> {
+        Row {
+            odbc_schema: odbc_schema,
+            cursor: cursor,
+            index: 0,
+            columns: odbc_schema.len() as u16,
+            utf_16_strings,
+        }
+    }
+
     fn finalize(&self) -> Result<(), DataAccessError> {
         if self.index != self.columns {
             return Err(DataAccessError::ColumnNumberMismatch(ColumnNumberMismatch {
@@ -1018,7 +1028,7 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
 
         let column = Column {
             descriptor,
-            cursor: self.cursor,
+            cursor: &mut self.cursor,
             index: self.index,
         };
 
@@ -1111,16 +1121,9 @@ where
         let odbc_schema = &self.odbc_schema;
 
         statement.fetch().wrap_error_while("fetching row").transpose().map(|cursor| {
-            let mut cursor = cursor?;
-            let mut row = Row {
-                odbc_schema: odbc_schema,
-                cursor: &mut cursor,
-                index: 0,
-                columns: odbc_schema.len() as u16,
-                utf_16_strings,
-            };
+            let mut row = Row::new(cursor?, odbc_schema, utf_16_strings);
 
-            let mut value_row = Vec::with_capacity(odbc_schema.len());
+            let mut value_row = Vec::with_capacity(row.columns() as usize);
 
             loop {
                 if let Some(column_type) = row.column_type()? {
