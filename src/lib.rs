@@ -384,9 +384,7 @@ impl From<DataAccessError> for QueryError {
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
     OdbcCursorError(DiagnosticRecord),
-    UnsupportedSqlDataType(UnsupportedSqlDataType),
     SqlDataTypeMismatch(SqlDataTypeMismatch),
-    ColumnNumberMismatch(ColumnNumberMismatch),
     FromRowError(Box<dyn Error>),
     FromUtf16Error(FromUtf16Error, &'static str),
     UnexpectedNumberOfRows(&'static str),
@@ -403,9 +401,7 @@ impl fmt::Display for DataAccessError {
             DataAccessError::OdbcCursorError(_) => {
                 write!(f, "failed to access data in ODBC cursor")
             }
-            DataAccessError::UnsupportedSqlDataType(_) |
-            DataAccessError::SqlDataTypeMismatch(_) |
-            DataAccessError::ColumnNumberMismatch(_) => {
+            DataAccessError::SqlDataTypeMismatch(_) => {
                 write!(f, "failed to handle data type conversion")
             }
             DataAccessError::FromRowError(_) => {
@@ -432,9 +428,7 @@ impl Error for DataAccessError {
         match self {
             DataAccessError::OdbcError(err, _) => Some(err),
             DataAccessError::OdbcCursorError(err) => Some(err),
-            DataAccessError::UnsupportedSqlDataType(err) => Some(err),
             DataAccessError::SqlDataTypeMismatch(err) => Some(err),
-            DataAccessError::ColumnNumberMismatch(err) => Some(err),
             DataAccessError::FromRowError(err) => Some(err.as_ref()),
             DataAccessError::FromUtf16Error(err, _) => Some(err),
             DataAccessError::UnexpectedNumberOfRows(_) => None,
@@ -449,12 +443,6 @@ impl Error for DataAccessError {
 impl From<DiagnosticRecord> for DataAccessError {
     fn from(err: DiagnosticRecord) -> DataAccessError {
         DataAccessError::OdbcCursorError(err)
-    }
-}
-
-impl From<UnsupportedSqlDataType> for DataAccessError {
-    fn from(err: UnsupportedSqlDataType) -> DataAccessError {
-        DataAccessError::UnsupportedSqlDataType(err)
     }
 }
 
@@ -615,22 +603,6 @@ impl fmt::Display for SqlDataTypeMismatch {
 }
 
 impl Error for SqlDataTypeMismatch {}
-
-/// This error can be returned if database provided row with less or more columns than requested by
-/// client
-#[derive(Debug)]
-pub struct ColumnNumberMismatch {
-    requested: u16,
-    queried: u16,
-}
-
-impl fmt::Display for ColumnNumberMismatch {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "requested number of columns {} does not match queried row number of columns {}", self.requested, self.queried)
-    }
-}
-
-impl Error for ColumnNumberMismatch {}
 
 /// Iterator over result set rows.
 ///
@@ -2274,6 +2246,6 @@ SELECT *;
             })
             .expect("failed to run query");
 
-        assert_eq!(format!("{:?}", result_set), "ResultSet { odbc_schema: [ColumnDescriptor { name: \"foo\", data_type: SQL_EXT_WVARCHAR, column_size: Some(1200), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"bar\", data_type: SQL_INTEGER, column_size: Some(10), decimal_digits: None, nullable: Some(true) }, ColumnDescriptor { name: \"baz\", data_type: SQL_EXT_BIT, column_size: Some(1), decimal_digits: None, nullable: Some(true) }], schema: [ColumnType { datum_type: String, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, nullable: true, name: \"baz\" }], columns: 3, utf_16_strings: true }");
+        assert_eq!(format!("{:?}", result_set), "ResultSet { schema: [ColumnType { datum_type: String, odbc_type: SQL_EXT_WVARCHAR, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, odbc_type: SQL_EXT_BIT, nullable: true, name: \"baz\" }], columns: 3, utf_16_strings: true }");
     }
 }
