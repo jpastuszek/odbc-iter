@@ -16,11 +16,11 @@ mod sql_timestamp {
 
     impl UnixTimestamp {
         pub fn as_naive_date_time(&self) -> NaiveDateTime {
-            NaiveDate::from_ymd(self.0.year as i32, self.0.month as u32, self.0.day as u32)
+            NaiveDate::from_ymd(i32::from(self.0.year), u32::from(self.0.month), u32::from(self.0.day))
                 .and_hms_nano(
-                    self.0.hour as u32,
-                    self.0.minute as u32,
-                    self.0.second as u32,
+                    u32::from(self.0.hour),
+                    u32::from(self.0.minute),
+                    u32::from(self.0.second),
                     self.0.fraction,
                 )
         }

@@ -138,11 +138,11 @@ impl Value {
     #[cfg(feature = "chrono")]
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
         self.as_timestamp().map(|value| {
-            NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
+            NaiveDate::from_ymd(i32::from(value.year), u32::from(value.month), u32::from(value.day))
                 .and_hms_nano(
-                    value.hour as u32,
-                    value.minute as u32,
-                    value.second as u32,
+                    u32::from(value.hour),
+                    u32::from(value.minute),
+                    u32::from(value.second),
                     value.fraction,
                 )
         })
@@ -165,7 +165,7 @@ impl Value {
     #[cfg(feature = "chrono")]
     pub fn to_naive_date(&self) -> Option<NaiveDate> {
         self.as_date().map(|value| {
-            NaiveDate::from_ymd(value.year as i32, value.month as u32, value.day as u32)
+            NaiveDate::from_ymd(i32::from(value.year), u32::from(value.month), u32::from(value.day))
         })
     }
 
@@ -187,9 +187,9 @@ impl Value {
     pub fn to_naive_time(&self) -> Option<NaiveTime> {
         self.as_time().map(|value| {
             NaiveTime::from_hms_nano(
-                value.hour as u32,
-                value.minute as u32,
-                value.second as u32,
+                u32::from(value.hour),
+                u32::from(value.minute),
+                u32::from(value.second),
                 value.fraction,
             )
         })

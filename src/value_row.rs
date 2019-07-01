@@ -21,7 +21,7 @@ pub type ValueRow = Vec<Option<Value>>;
 pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
     /// Given `ColumnType` convert from `ValueRow` to other type of value representing table row.
-    fn try_from_row<'n>(values: ValueRow, schema: &'n [ColumnType]) -> Result<Self, Self::Error>;
+    fn try_from_row(values: ValueRow, schema: &[ColumnType]) -> Result<Self, Self::Error>;
 }
 
 /// Errors that may happen during conversion of `ValueRow` to given type.
@@ -66,7 +66,7 @@ impl Error for RowConvertError {
 /// Allow to retrieve unconverted `ValueRow` as item of `ResultSet` iterator.
 impl TryFromValueRow for ValueRow {
     type Error = Infallible;
-    fn try_from_row<'n>(values: ValueRow, _schema: &'n [ColumnType]) -> Result<Self, Self::Error> {
+    fn try_from_row(values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
         Ok(values)
     }
 }
@@ -74,7 +74,7 @@ impl TryFromValueRow for ValueRow {
 /// Unit can be used to signal that no rows of data should be produced.
 impl TryFromValueRow for () {
     type Error = RowConvertError;
-    fn try_from_row<'n>(_values: ValueRow, _schema: &'n [ColumnType]) -> Result<Self, Self::Error> {
+    fn try_from_row(_values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
@@ -85,9 +85,9 @@ where
     T: TryFromValue,
 {
     type Error = RowConvertError;
-    fn try_from_row<'n>(
+    fn try_from_row(
         mut values: ValueRow,
-        _schema: &'n [ColumnType],
+        _schema: &[ColumnType],
     ) -> Result<Self, Self::Error> {
         if values.len() != 1 {
             return Err(RowConvertError::UnexpectedNumberOfColumns {
@@ -150,7 +150,7 @@ macro_rules! try_from_tuple {
         $(
             impl<$($T: TryFromValue),+> TryFromValueRow for ($($T,)+) {
                 type Error = RowConvertTupleError;
-                fn try_from_row<'n>(values: ValueRow, _schema: &'n [ColumnType]) -> Result<($($T,)+), Self::Error> {
+                fn try_from_row(values: ValueRow, _schema: &[ColumnType]) -> Result<($($T,)+), Self::Error> {
                     if values.len() != count!($($T)+) {
                         return Err(RowConvertTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
                     }
@@ -284,9 +284,9 @@ mod tests {
 
     impl TryFromValueRow for Foo {
         type Error = Infallible;
-        fn try_from_row<'n>(
+        fn try_from_row(
             mut values: ValueRow,
-            _schema: &'n [ColumnType],
+            _schema: &[ColumnType],
         ) -> Result<Self, Self::Error> {
             Ok(values
                 .pop()

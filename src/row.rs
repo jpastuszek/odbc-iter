@@ -43,6 +43,7 @@ impl Error for UnsupportedSqlDataType {}
 
 /// Errors related to datum access of ODBC cursor.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum DatumAccessError {
     OdbcCursorError(DiagnosticRecord),
     SqlDataTypeMismatch(SqlDataTypeMismatch),
@@ -125,7 +126,7 @@ pub enum DatumType {
 
 impl DatumType {
     /// Static string describing type of column datum.
-    pub fn description(&self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             DatumType::Bit => "BIT",
             DatumType::Tinyint => "TINYINT",
@@ -204,11 +205,11 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
 
-    pub fn as_bool(self) -> Result<Option<bool>, DatumAccessError> {
+    pub fn into_bool(self) -> Result<Option<bool>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_BIT => {
                 self.into::<u8>()?
-                    .map(|byte| if byte == 0 { false } else { true })
+                    .map(|byte| byte != 0)
             }
             queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
                 requested: "BIT",
@@ -217,7 +218,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_i8(self) -> Result<Option<i8>, DatumAccessError> {
+    pub fn into_i8(self) -> Result<Option<i8>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_TINYINT => {
                 self.into::<i8>()?
@@ -229,7 +230,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_i16(self) -> Result<Option<i16>, DatumAccessError> {
+    pub fn into_i16(self) -> Result<Option<i16>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_SMALLINT => {
                 self.into::<i16>()?
@@ -241,7 +242,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_i32(self) -> Result<Option<i32>, DatumAccessError> {
+    pub fn into_i32(self) -> Result<Option<i32>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_INTEGER => {
                 self.into::<i32>()?
@@ -253,7 +254,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_i64(self) -> Result<Option<i64>, DatumAccessError> {
+    pub fn into_i64(self) -> Result<Option<i64>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_BIGINT => {
                 self.into::<i64>()?
@@ -265,7 +266,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_f32(self) -> Result<Option<f32>, DatumAccessError> {
+    pub fn into_f32(self) -> Result<Option<f32>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_REAL |
             SqlDataType::SQL_FLOAT => {
@@ -278,7 +279,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_f64(self) -> Result<Option<f64>, DatumAccessError> {
+    pub fn into_f64(self) -> Result<Option<f64>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_DOUBLE => {
                 self.into::<f64>()?
@@ -290,7 +291,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_string(self) -> Result<Option<String>, DatumAccessError> {
+    pub fn into_string(self) -> Result<Option<String>, DatumAccessError> {
         use SqlDataType::*;
         Ok(match self.column_type.odbc_type {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
@@ -316,7 +317,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_timestamp(self) -> Result<Option<SqlTimestamp>, DatumAccessError> {
+    pub fn into_timestamp(self) -> Result<Option<SqlTimestamp>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_TIMESTAMP => {
                 self.into::<SqlTimestamp>()?
@@ -328,7 +329,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_date(self) -> Result<Option<SqlDate>, DatumAccessError> {
+    pub fn into_date(self) -> Result<Option<SqlDate>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_DATE => {
                 self.into::<SqlDate>()?
@@ -340,7 +341,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         })
     }
 
-    pub fn as_time(self) -> Result<Option<SqlSsTime2>, DatumAccessError> {
+    pub fn into_time(self) -> Result<Option<SqlSsTime2>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_TIME=> {
                 self.into::<SqlTime>()?.map(|ss| SqlSsTime2 {
@@ -361,7 +362,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     }
 
     #[cfg(feature = "serde_json")]
-    pub fn as_json(self) -> Result<Option<serde_json::Value>, DatumAccessError> {
+    pub fn into_json(self) -> Result<Option<serde_json::Value>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             queried @ SqlDataType::SQL_UNKNOWN_TYPE => {
                 self.into::<String>()?.map(|data| {
@@ -397,8 +398,8 @@ pub struct Row<'r, 's, 'c, S> {
 impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
     pub fn new(cursor: odbc::Cursor<'s, 'c, 'c, S>, schema: &'r[ColumnType], utf_16_strings: bool) -> Row<'r, 's, 'c, S> {
         Row {
-            schema: schema,
-            cursor: cursor,
+            schema,
+            cursor,
             index: 0,
             columns: schema.len() as u16,
             utf_16_strings,

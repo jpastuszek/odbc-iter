@@ -18,6 +18,7 @@ use crate::value_row::TryFromValueRow;
 ///
 /// `OdbcError` and `DataAccessError` can be converted into `QueryError`.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum QueryError {
     OdbcError(OdbcError),
     BindError(DiagnosticRecord),
@@ -177,8 +178,7 @@ impl<'h> fmt::Debug for PreparedStatement<'h> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut d = f.debug_struct("PreparedStatement");
 
-        let schema = (1..(self.0.num_result_cols().map_err(|_| std::fmt::Error)? + 1))
-            .into_iter()
+        let schema = (1..=self.0.num_result_cols().map_err(|_| std::fmt::Error)?)
             .map(|i| self.0.describe_col(i as u16))
             .collect::<Result<Vec<ColumnDescriptor>, _>>()
             .map_err(|_| std::fmt::Error)?;
@@ -195,7 +195,7 @@ impl<'h> PreparedStatement<'h> {
 
     /// Query schema information deduced from prepared statement SQL text.
     pub fn schema(&self) -> Result<Vec<ColumnType>, QueryError> {
-        (1..self.columns()? + 1)
+        (1..=self.columns()?)
             .map(|i| {
                 self.0
                     .describe_col(i as u16)
@@ -318,7 +318,7 @@ impl<'h, 'c: 'h> Handle<'c> {
     where
         V: TryFromValueRow,
     {
-        self.query_with_parameters(query, |b| Ok(b))
+        self.query_with_parameters(query, Ok)
     }
 
     /// Execute one-off query with parameters.
@@ -353,7 +353,7 @@ impl<'h, 'c: 'h> Handle<'c> {
     where
         V: TryFromValueRow,
     {
-        self.execute_with_parameters(statement, |b| Ok(b))
+        self.execute_with_parameters(statement, Ok)
     }
 
     /// Bind parameters and execute prepared statement.

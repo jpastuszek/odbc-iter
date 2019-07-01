@@ -16,6 +16,7 @@ use crate::value::Value;
 
 /// Error crating ResultSet iterator.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ResultSetError {
     OdbcError(DiagnosticRecord, &'static str),
     UnsupportedSqlDataType(UnsupportedSqlDataType),
@@ -60,6 +61,7 @@ impl From<UnsupportedSqlDataType> for ResultSetError {
 /// This error can happen when iterating rows of executed query result set.
 /// For convenience this error can be converted into `QueryError`.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum DataAccessError {
     OdbcError(DiagnosticRecord, &'static str),
     DatumAccessError(DatumAccessError),
@@ -159,7 +161,7 @@ where
                 let columns = statement
                     .num_result_cols()
                     .wrap_error_while("getting number of result columns")?;
-                let odbc_schema = (1..columns + 1)
+                let odbc_schema = (1..=columns)
                     .map(|i| statement.describe_col(i as u16))
                     .collect::<Result<Vec<ColumnDescriptor>, _>>()
                     .wrap_error_while("getting column descriptiors")?;
@@ -168,7 +170,7 @@ where
                     .wrap_error_while("reseting bound parameters on statement")?; // don't reference parameter data any more
 
                 if log_enabled!(::log::Level::Debug) {
-                    if odbc_schema.len() == 0 {
+                    if odbc_schema.is_empty() {
                         debug!("Got empty data set");
                     } else {
                         debug!(
@@ -349,19 +351,19 @@ where
             loop {
                 if let Some(column) = row.shift_column() {
                     let value = match column.column_type().datum_type {
-                        DatumType::Bit => column.as_bool()?.map(Value::from),
-                        DatumType::Tinyint => column.as_i8()?.map(Value::from),
-                        DatumType::Smallint => column.as_i16()?.map(Value::from),
-                        DatumType::Integer => column.as_i32()?.map(Value::from),
-                        DatumType::Bigint => column.as_i64()?.map(Value::from),
-                        DatumType::Float => column.as_f32()?.map(Value::from),
-                        DatumType::Double => column.as_f64()?.map(Value::from),
-                        DatumType::String => column.as_string()?.map(Value::from),
-                        DatumType::Timestamp => column.as_timestamp()?.map(Value::from),
-                        DatumType::Date => column.as_date()?.map(Value::from),
-                        DatumType::Time => column.as_time()?.map(Value::from),
+                        DatumType::Bit => column.into_bool()?.map(Value::from),
+                        DatumType::Tinyint => column.into_i8()?.map(Value::from),
+                        DatumType::Smallint => column.into_i16()?.map(Value::from),
+                        DatumType::Integer => column.into_i32()?.map(Value::from),
+                        DatumType::Bigint => column.into_i64()?.map(Value::from),
+                        DatumType::Float => column.into_f32()?.map(Value::from),
+                        DatumType::Double => column.into_f64()?.map(Value::from),
+                        DatumType::String => column.into_string()?.map(Value::from),
+                        DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
+                        DatumType::Date => column.into_date()?.map(Value::from),
+                        DatumType::Time => column.into_time()?.map(Value::from),
                         #[cfg(feature = "serde_json")]
-                        DatumType::Json => column.as_json()?.map(Value::from),
+                        DatumType::Json => column.into_json()?.map(Value::from),
                     };
                     value_row.push(value)
                 } else {
@@ -371,7 +373,7 @@ where
         })
         .map(|v| v.and_then(|v| {
             // Verify that value types match schema
-            debug_assert!(v.iter().map(|v| v.as_ref().map(|v| v.datum_type())).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.datum_type } else { true }));
+            debug_assert!(v.iter().map(|v| v.as_ref().map(Value::datum_type)).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.datum_type } else { true }));
             TryFromValueRow::try_from_row(v, self.schema()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))
         }))
     }

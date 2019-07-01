@@ -346,12 +346,10 @@ impl Odbc {
             panic!("ODBC environment already initialised");
         }
 
-        let ret = odbc::create_environment_v3()
+        odbc::create_environment_v3()
             .wrap_error_while("creating v3 environment")
             .map_err(Into::into)
-            .map(|environment| Odbc { environment });
-
-        ret
+            .map(|environment| Odbc { environment })
     }
 
     /// Initialize global static ODBC environment now.
