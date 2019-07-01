@@ -562,6 +562,8 @@ try_from_row![String, into_string];
 try_from_row![SqlTimestamp, into_timestamp];
 try_from_row![SqlDate, into_date];
 try_from_row![SqlSsTime2, into_time];
+#[cfg(feature = "serde_json")]
+try_from_row![serde_json::Value, into_json];
 
 #[cfg(feature = "chrono")]
 use chrono::{NaiveDateTime, NaiveDate, NaiveTime};

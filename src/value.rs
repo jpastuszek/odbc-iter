@@ -657,6 +657,8 @@ try_from_value_copy![NaiveDate, to_naive_date];
 try_from_value_owned![SqlSsTime2, into_time];
 #[cfg(feature = "chrono")]
 try_from_value_copy![NaiveTime, to_naive_time];
+#[cfg(feature = "serde_json")]
+try_from_value_owned![serde_json::Value, into_json];
 
 #[cfg(feature = "serde")]
 mod ser {
