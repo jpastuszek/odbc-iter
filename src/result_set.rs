@@ -8,8 +8,6 @@ use std::marker::PhantomData;
 
 use crate::query::{Handle, PreparedStatement};
 use crate::row::{ColumnType, DatumAccessError, Row, TryFromRow, UnsupportedSqlDataType};
-use crate::value::Value;
-use crate::value_row::{ValueRow, TryFromValueRow};
 use crate::OdbcError;
 
 /// Error crating ResultSet iterator.
@@ -113,7 +111,7 @@ impl From<DatumAccessError> for DataAccessError {
 
 /// Iterator over result set rows.
 ///
-/// Items of this iterator can be of any type that implements `TryFromValueRow` that includes common Rust types and tuples.
+/// Items of this iterator can be of any type that implements `TryFromRow` that includes common Rust types and tuples.
 pub struct ResultSet<'h, 'c, V, S> {
     statement: Option<ExecutedStatement<'c, S>>,
     schema: Vec<ColumnType>,
@@ -147,7 +145,7 @@ enum ExecutedStatement<'c, S> {
 
 impl<'h, 'c: 'h, V, S> ResultSet<'h, 'c, V, S>
 where
-    V: TryFromValueRow,
+    V: TryFromRow,
 {
     pub(crate) fn from_result(
         _handle: &'h Handle<'c>,
@@ -261,7 +259,7 @@ where
 
 impl<'h, 'c: 'h, V> ResultSet<'h, 'c, V, Prepared>
 where
-    V: TryFromValueRow,
+    V: TryFromRow,
 {
     /// Close the result set and discard any not consumed rows.
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
@@ -293,7 +291,7 @@ where
 
 impl<'h, 'c: 'h, V> ResultSet<'h, 'c, V, Executed>
 where
-    V: TryFromValueRow,
+    V: TryFromRow,
 {
     /// Close the result set and discard any not consumed rows.
     pub fn close(mut self) -> Result<(), OdbcError> {
@@ -325,7 +323,7 @@ where
 
 impl<'h, 'c: 'h, V, S> Iterator for ResultSet<'h, 'c, V, S>
 where
-    V: TryFromValueRow,
+    V: TryFromRow,
 {
     type Item = Result<V, DataAccessError>;
 
@@ -349,24 +347,8 @@ where
             .transpose()
             .map(|cursor| {
                 let row = Row::new(cursor?, schema, utf_16_strings);
-                //TODO: should not need to go through ValueRow type
-                ValueRow::try_from_row(row).map_err(Into::into)
-            })
-            .map(|v| {
-                v.and_then(|v| {
-                    // Verify that value types match schema
-                    debug_assert!(v
-                        .iter()
-                        .map(|v| v.as_ref().map(Value::datum_type))
-                        .zip(self.schema())
-                        .all(|(v, s)| if let Some(v) = v {
-                            v == s.datum_type
-                        } else {
-                            true
-                        }));
-                    TryFromValueRow::try_from_value_row(v, self.schema())
-                        .map_err(|err| DataAccessError::FromRowError(Box::new(err)))
-                })
+                TryFromRow::try_from_row(row)
+                    .map_err(|err| DataAccessError::FromRowError(Box::new(err)))
             })
     }
 }
@@ -374,26 +356,21 @@ where
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
-    use crate::{Odbc, TryFromValueRow, ValueRow, ColumnType, Value};
+    use crate::{Odbc, TryFromRow, ValueRow, ColumnType, Value, DatumAccessError, Row};
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
-
-    use std::convert::Infallible;
 
     #[derive(Debug)]
     struct Foo {
         val: i64,
     }
 
-    impl TryFromValueRow for Foo {
-        type Error = Infallible;
-        fn try_from_value_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
-            Ok(values
-                .pop()
-                .map(|val| Foo {
-                    val: val.and_then(|v| v.to_i64()).expect("val to be an bigint"),
-                })
-                .expect("value"))
+    impl TryFromRow for Foo {
+        type Error = DatumAccessError;
+        fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+            Ok(Foo {
+                val: row.shift_column().expect("column").into_i64()?.expect("value")
+            })
         }
     }
 

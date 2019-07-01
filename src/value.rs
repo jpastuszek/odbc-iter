@@ -1,4 +1,4 @@
-use crate::row::{DatumType, Column, TryFromColumn, DatumAccessError};
+use crate::row::{DatumType, Column, TryFromColumn, ColumnConvertError};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
@@ -371,7 +371,7 @@ impl From<serde_json::Value> for Value {
 }
 
 impl TryFromColumn for Option<Value> {
-    type Error = DatumAccessError;
+    type Error = ColumnConvertError;
 
     fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
         Ok(match column.column_type().datum_type {
@@ -389,6 +389,15 @@ impl TryFromColumn for Option<Value> {
             #[cfg(feature = "serde_json")]
             DatumType::Json => column.into_json()?.map(Value::from),
         })
+    }
+}
+
+impl TryFromColumn for Value {
+    type Error = ColumnConvertError;
+
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+        let value: Option<Value> = TryFromColumn::try_from_column(column)?;
+        value.ok_or_else(|| ColumnConvertError::UnexpectedNullValue("Value"))
     }
 }
 

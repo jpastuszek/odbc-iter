@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::string::FromUtf16Error;
+use std::convert::TryInto;
 
 /// This error can be returned if database provided column type does not match type requested by
 /// client
@@ -457,4 +458,410 @@ pub trait TryFromRow: Sized {
     type Error: Error + 'static;
     /// Given `ColumnType` convert from `Row` to other type of value representing table row.
     fn try_from_row<'r, 's, 'c, S>(row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error>;
+}
+
+/// Error type that represents different problems when converting column values to specific types.
+#[derive(Debug)]
+pub enum ColumnConvertError {
+    UnexpectedNullValue(&'static str),
+    DatumAccessError(DatumAccessError),
+    ValueOutOfRange {
+        expected: &'static str,
+    },
+}
+
+impl From<DatumAccessError> for ColumnConvertError {
+    fn from(err: DatumAccessError) -> ColumnConvertError {
+        ColumnConvertError::DatumAccessError(err)
+    }
+}
+
+impl fmt::Display for ColumnConvertError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ColumnConvertError::UnexpectedNullValue(t) => {
+                write!(f, "expecting value of type {} but got NULL", t)
+            }
+            ColumnConvertError::DatumAccessError(_) => {
+                write!(f, "problem accessing datum")
+            }
+            ColumnConvertError::ValueOutOfRange { expected } => {
+                write!(f, "value is out of range for type {}", expected)
+            }
+        }
+    }
+}
+
+impl Error for ColumnConvertError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ColumnConvertError::DatumAccessError(err) => Some(err),
+            ColumnConvertError::UnexpectedNullValue(_) |
+            ColumnConvertError::ValueOutOfRange { .. } => None,
+        }
+    }
+}
+
+macro_rules! try_from_row_not_null {
+    ($t:ty) => {
+        impl TryFromColumn for $t {
+            type Error = ColumnConvertError;
+            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+                let value: Option<$t> = TryFromColumn::try_from_column(column)?;
+                value.ok_or_else(|| ColumnConvertError::UnexpectedNullValue(stringify!($t)))
+            }
+        }
+    }
+}
+
+macro_rules! try_from_row {
+    ($t:ty, $f:ident) => {
+        impl TryFromColumn for Option<$t> {
+            type Error = ColumnConvertError;
+            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+                column.$f().map_err(Into::into)
+            }
+        }
+
+        try_from_row_not_null!($t);
+    };
+}
+
+macro_rules! try_from_row_unsigned {
+    ($it:ty, $t:ty) => {
+        impl TryFromColumn for Option<$t> {
+            type Error = ColumnConvertError;
+            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+                let value: Option<$it> = TryFromColumn::try_from_column(column)?;
+                value.map(|value|
+                    value
+                    .try_into()
+                    .map_err(|_| ColumnConvertError::ValueOutOfRange {
+                        expected: stringify!($t),
+                    })
+                ).transpose()
+            }
+        }
+
+        try_from_row_not_null!($t);
+    };
+}
+
+try_from_row![bool, into_bool];
+try_from_row![i8, into_i8];
+try_from_row_unsigned![i8, u8];
+try_from_row![i16, into_i16];
+try_from_row_unsigned![i16, u16];
+try_from_row![i32, into_i32];
+try_from_row_unsigned![i32, u32];
+try_from_row![i64, into_i64];
+try_from_row_unsigned![i64, u64];
+try_from_row![f32, into_f32];
+try_from_row![f64, into_f64];
+try_from_row![String, into_string];
+try_from_row![SqlTimestamp, into_timestamp];
+try_from_row![SqlDate, into_date];
+try_from_row![SqlSsTime2, into_time];
+
+#[cfg(feature = "chrono")]
+use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+
+#[cfg(feature = "chrono")]
+impl TryFromColumn for Option<NaiveDateTime> {
+    type Error = ColumnConvertError;
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+        let value: Option<SqlTimestamp> = TryFromColumn::try_from_column(column)?;
+
+        Ok(value.map(|value| {
+            NaiveDate::from_ymd(
+                i32::from(value.year),
+                u32::from(value.month),
+                u32::from(value.day),
+            )
+            .and_hms_nano(
+                u32::from(value.hour),
+                u32::from(value.minute),
+                u32::from(value.second),
+                value.fraction,
+            )
+        }))
+    }
+}
+
+#[cfg(feature = "chrono")]
+try_from_row_not_null!(NaiveDateTime);
+
+#[cfg(feature = "chrono")]
+impl TryFromColumn for Option<NaiveDate> {
+    type Error = ColumnConvertError;
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+        let value: Option<SqlDate> = TryFromColumn::try_from_column(column)?;
+
+        Ok(value.map(|value| {
+            NaiveDate::from_ymd(
+                i32::from(value.year),
+                u32::from(value.month),
+                u32::from(value.day),
+            )
+        }))
+    }
+}
+
+#[cfg(feature = "chrono")]
+try_from_row_not_null!(NaiveDate);
+
+#[cfg(feature = "chrono")]
+impl TryFromColumn for Option<NaiveTime> {
+    type Error = ColumnConvertError;
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+        let value: Option<SqlSsTime2> = TryFromColumn::try_from_column(column)?;
+
+        Ok(value.map(|value| {
+            NaiveTime::from_hms_nano(
+                u32::from(value.hour),
+                u32::from(value.minute),
+                u32::from(value.second),
+                value.fraction,
+            )
+        }))
+    }
+}
+
+#[cfg(feature = "chrono")]
+try_from_row_not_null!(NaiveTime);
+
+/// Errors that may happen during conversion of `ValueRow` to given type.
+#[derive(Debug)]
+pub enum RowConvertError {
+    UnexpectedNullValue(&'static str),
+    UnexpectedValue,
+    UnexpectedNumberOfColumns { expected: u16, got: u16 },
+    ColumnConvertError(Box<dyn Error>),
+}
+
+impl From<ColumnConvertError> for RowConvertError {
+    fn from(err: ColumnConvertError) -> RowConvertError {
+        RowConvertError::ColumnConvertError(Box::new(err))
+    }
+}
+
+impl fmt::Display for RowConvertError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RowConvertError::UnexpectedNullValue(t) => {
+                write!(f, "expecting value of type {} but got NULL", t)
+            }
+            RowConvertError::UnexpectedValue => write!(f, "expecting no data (unit) but got a row"),
+            RowConvertError::UnexpectedNumberOfColumns { expected, got } => write!(
+                f,
+                "unexpected number of columns: expected {} but got {}",
+                expected, got
+            ),
+            RowConvertError::ColumnConvertError(_) => {
+                write!(f, "failed to convert column value to target type")
+            }
+        }
+    }
+}
+
+impl Error for RowConvertError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            RowConvertError::UnexpectedNullValue(_)
+            | RowConvertError::UnexpectedValue
+            | RowConvertError::UnexpectedNumberOfColumns { .. } => None,
+            RowConvertError::ColumnConvertError(err) => Some(err.as_ref()),
+        }
+    }
+}
+
+/// Unit can be used to signal that no rows of data should be produced.
+impl TryFromRow for () {
+    type Error = RowConvertError;
+    fn try_from_row<'r, 's, 'c, S>(_row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+        Err(RowConvertError::UnexpectedValue)
+    }
+}
+
+/// Convert row with single column to any type implementing `TryFromColumn`.
+impl<T> TryFromRow for T
+where
+    T: TryFromColumn,
+{
+    type Error = RowConvertError;
+    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+        if row.columns() != 1 {
+            return Err(RowConvertError::UnexpectedNumberOfColumns {
+                expected: 1,
+                got: row.columns(),
+            });
+        }
+
+        let column = row.shift_column().unwrap();
+
+        TryFromColumn::try_from_column(column)
+            .map_err(|e| RowConvertError::ColumnConvertError(Box::new(e)))
+
+    }
+}
+
+/// Errors that my arise when converting rows to tuples.
+#[derive(Debug)]
+pub enum RowConvertTupleError {
+    UnexpectedNumberOfColumns { expected: u16, tuple: &'static str },
+    ValueConvertError(Box<dyn Error>),
+}
+
+impl fmt::Display for RowConvertTupleError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RowConvertTupleError::UnexpectedNumberOfColumns { expected, tuple } => write!(
+                f,
+                "failed to convert row with {} columns to tuple {}",
+                expected, tuple
+            ),
+            RowConvertTupleError::ValueConvertError(_) => {
+                write!(f, "failed to convert column value to target type")
+            }
+        }
+    }
+}
+
+impl Error for RowConvertTupleError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            RowConvertTupleError::UnexpectedNumberOfColumns { .. } => None,
+            RowConvertTupleError::ValueConvertError(err) => Some(err.as_ref()),
+        }
+    }
+}
+
+macro_rules! count {
+    () => (0u16);
+    ( $x:tt $($xs:tt)* ) => (1u16 + count!($($xs)*));
+}
+
+macro_rules! try_from_tuple {
+    ($(
+        $Tuple:ident {
+            $(($idx:tt) -> $T:ident)+
+        }
+    )+) => {
+        $(
+            impl<$($T: TryFromColumn),+> TryFromRow for ($($T,)+) {
+                type Error = RowConvertTupleError;
+                fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<($($T,)+), Self::Error> {
+                    if row.columns() != count!($($T)+) {
+                        return Err(RowConvertTupleError::UnexpectedNumberOfColumns { expected: row.columns(), tuple: stringify![($($T,)+)] })
+                    }
+                    Ok(($({ let x: $T = $T::try_from_column(row.shift_column().unwrap()).map_err(|err| RowConvertTupleError::ValueConvertError(Box::new(err)))?; x},)+))
+                }
+            }
+        )+
+    }
+}
+
+try_from_tuple! {
+    Tuple1 {
+        (0) -> A
+    }
+    Tuple2 {
+        (0) -> A
+        (1) -> B
+    }
+    Tuple3 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+    }
+    Tuple4 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+    }
+    Tuple5 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+    }
+    Tuple6 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+    }
+    Tuple7 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+    }
+    Tuple8 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+    }
+    Tuple9 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+    }
+    Tuple10 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+    }
+    Tuple11 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+    }
+    Tuple12 {
+        (0) -> A
+        (1) -> B
+        (2) -> C
+        (3) -> D
+        (4) -> E
+        (5) -> F
+        (6) -> G
+        (7) -> H
+        (8) -> I
+        (9) -> J
+        (10) -> K
+        (11) -> L
+    }
 }

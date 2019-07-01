@@ -10,8 +10,7 @@ use std::fmt;
 use std::fmt::Debug;
 
 use crate::result_set::{DataAccessError, ResultSet, ResultSetError};
-use crate::row::{ColumnType, UnsupportedSqlDataType};
-use crate::value_row::TryFromValueRow;
+use crate::row::{ColumnType, UnsupportedSqlDataType, TryFromRow};
 use crate::{Odbc, OdbcError};
 
 /// Errors related to execution of queries.
@@ -287,7 +286,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         table_type: Option<&'i str>,
     ) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
-        V: TryFromValueRow,
+        V: TryFromRow,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -325,7 +324,7 @@ impl<'h, 'c: 'h> Handle<'c> {
     /// Execute one-off query.
     pub fn query<V>(&'h mut self, query: &str) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
-        V: TryFromValueRow,
+        V: TryFromRow,
     {
         self.query_with_parameters(query, Ok)
     }
@@ -338,7 +337,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         bind: F,
     ) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
     where
-        V: TryFromValueRow,
+        V: TryFromRow,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -360,7 +359,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         statement: PreparedStatement<'c>,
     ) -> Result<ResultSet<'h, 'c, V, Prepared>, QueryError>
     where
-        V: TryFromValueRow,
+        V: TryFromRow,
     {
         self.execute_with_parameters(statement, Ok)
     }
@@ -372,7 +371,7 @@ impl<'h, 'c: 'h> Handle<'c> {
         bind: F,
     ) -> Result<ResultSet<'h, 'c, V, Prepared>, QueryError>
     where
-        V: TryFromValueRow,
+        V: TryFromRow,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();

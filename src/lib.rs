@@ -262,14 +262,6 @@ pub mod odbc_type;
 pub mod thread_local;
 
 // TODO
-// * avoid alocation of ValueRow when converting to Rust types
-// ** don't pass ColumnType (schema) to TryFromValueRow as we won't need it there
-// ** crate TryFromRow and TryFromColumn traits that get ColumnType (schema)
-// ** move all test that query from ValueRow to here
-// ** redo conversion test in ValueRow using only that modules functions (no need to query)
-// ** implement same conversions as ValueRow has on top of the TryFromRow and TryFromColumn traits
-// ** implement TryFromColumn for Value and TryFromRow fror ValueRow
-// ** use TryFromRow trait in the next() function of ResultSet
 // * Prepared statement cache:
 // ** db.with_statement_cache() -> StatementCache
 // ** sc.query(str) - direct query
