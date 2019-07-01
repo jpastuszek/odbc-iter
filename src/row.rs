@@ -4,14 +4,12 @@ Fetching data from ODBC Cursor and conversion to Rust native types.
 
 use error_context::prelude::*;
 use odbc::ffi::SqlDataType;
+use odbc::{ColumnDescriptor, DiagnosticRecord, OdbcType};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
-use odbc::{
-    ColumnDescriptor, DiagnosticRecord, OdbcType
-};
-use std::fmt;
-use std::error::Error;
-use std::string::FromUtf16Error;
 use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
+use std::string::FromUtf16Error;
 
 /// This error can be returned if database provided column type does not match type requested by
 /// client
@@ -23,7 +21,11 @@ pub struct SqlDataTypeMismatch {
 
 impl fmt::Display for SqlDataTypeMismatch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "requested SQL column data type '{:?}' does not match queried data type '{:?}'", self.requested, self.queried)
+        write!(
+            f,
+            "requested SQL column data type '{:?}' does not match queried data type '{:?}'",
+            self.requested, self.queried
+        )
     }
 }
 
@@ -145,7 +147,6 @@ impl DatumType {
     }
 }
 
-
 impl TryFrom<ColumnDescriptor> for ColumnType {
     type Error = UnsupportedSqlDataType;
 
@@ -196,7 +197,9 @@ pub struct Column<'r, 's, 'c, S> {
 
 impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     fn into<T: OdbcType<'r>>(self) -> Result<Option<T>, DatumAccessError> {
-        self.cursor.get_data::<T>(self.index + 1).map_err(DatumAccessError::OdbcCursorError)
+        self.cursor
+            .get_data::<T>(self.index + 1)
+            .map_err(DatumAccessError::OdbcCursorError)
     }
 
     pub fn column_type(&self) -> &ColumnType {
@@ -207,96 +210,92 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 
     pub fn into_bool(self) -> Result<Option<bool>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_EXT_BIT => {
-                self.into::<u8>()?
-                    .map(|byte| byte != 0)
+            SqlDataType::SQL_EXT_BIT => self.into::<u8>()?.map(|byte| byte != 0),
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "BIT",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "BIT",
-                queried,
-            }))
         })
     }
 
     pub fn into_i8(self) -> Result<Option<i8>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_EXT_TINYINT => {
-                self.into::<i8>()?
+            SqlDataType::SQL_EXT_TINYINT => self.into::<i8>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "TINYINT",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "TINYINT",
-                queried,
-            }))
         })
     }
 
     pub fn into_i16(self) -> Result<Option<i16>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_SMALLINT => {
-                self.into::<i16>()?
+            SqlDataType::SQL_SMALLINT => self.into::<i16>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "SMALLINT",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "SMALLINT",
-                queried,
-            }))
         })
     }
 
     pub fn into_i32(self) -> Result<Option<i32>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_INTEGER => {
-                self.into::<i32>()?
+            SqlDataType::SQL_INTEGER => self.into::<i32>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "INTEGER",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "INTEGER",
-                queried,
-            }))
         })
     }
 
     pub fn into_i64(self) -> Result<Option<i64>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_EXT_BIGINT => {
-                self.into::<i64>()?
+            SqlDataType::SQL_EXT_BIGINT => self.into::<i64>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "BIGINT",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "BIGINT",
-                queried,
-            }))
         })
     }
 
     pub fn into_f32(self) -> Result<Option<f32>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_REAL |
-            SqlDataType::SQL_FLOAT => {
-                self.into::<f32>()?
+            SqlDataType::SQL_REAL | SqlDataType::SQL_FLOAT => self.into::<f32>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "FLOAT",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "FLOAT",
-                queried,
-            }))
         })
     }
 
     pub fn into_f64(self) -> Result<Option<f64>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_DOUBLE => {
-                self.into::<f64>()?
+            SqlDataType::SQL_DOUBLE => self.into::<f64>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "DOUBLE",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "DOUBLE",
-                queried,
-            }))
         })
     }
 
     pub fn into_string(self) -> Result<Option<String>, DatumAccessError> {
         use SqlDataType::*;
         Ok(match self.column_type.odbc_type {
-            SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => {
-                self.into::<String>()?
-            }
+            SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => self.into::<String>()?,
             SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
                 if self.utf_16_strings {
                     //TODO: map + transpose
@@ -310,54 +309,54 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
                     self.into::<String>()?
                 }
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "STRING",
-                queried,
-            }))
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "STRING",
+                    queried,
+                }))
+            }
         })
     }
 
     pub fn into_timestamp(self) -> Result<Option<SqlTimestamp>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_TIMESTAMP => {
-                self.into::<SqlTimestamp>()?
+            SqlDataType::SQL_TIMESTAMP => self.into::<SqlTimestamp>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "TIMESTAMP",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "TIMESTAMP",
-                queried,
-            }))
         })
     }
 
     pub fn into_date(self) -> Result<Option<SqlDate>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_DATE => {
-                self.into::<SqlDate>()?
+            SqlDataType::SQL_DATE => self.into::<SqlDate>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "DATE",
+                    queried,
+                }))
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "DATE",
-                queried,
-            }))
         })
     }
 
     pub fn into_time(self) -> Result<Option<SqlSsTime2>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_TIME=> {
-                self.into::<SqlTime>()?.map(|ss| SqlSsTime2 {
-                    hour: ss.hour,
-                    minute: ss.minute,
-                    second: ss.second,
-                    fraction: 0
-                })
+            SqlDataType::SQL_TIME => self.into::<SqlTime>()?.map(|ss| SqlSsTime2 {
+                hour: ss.hour,
+                minute: ss.minute,
+                second: ss.second,
+                fraction: 0,
+            }),
+            SqlDataType::SQL_SS_TIME2 => self.into::<SqlSsTime2>()?,
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "TIME",
+                    queried,
+                }))
             }
-            SqlDataType::SQL_SS_TIME2 => {
-                self.into::<SqlSsTime2>()?
-            }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "TIME",
-                queried,
-            }))
         })
     }
 
@@ -365,30 +364,38 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
     pub fn into_json(self) -> Result<Option<serde_json::Value>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             queried @ SqlDataType::SQL_UNKNOWN_TYPE => {
-                self.into::<String>()?.map(|data| {
-                    // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
-                    if (data.starts_with("[") && data.ends_with("]")) || (data.starts_with("{") && data.ends_with("}")) {
-                        serde_json::from_str(&data).map_err(Into::into)
-                    } else {
-                        //TOOD: better error?
-                        return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                            requested: "JSON",
-                            queried,
-                        }))
-                    }
-                }).transpose()?
+                self.into::<String>()?
+                    .map(|data| {
+                        // MonetDB can only store arrays or objects as top level JSON values so check if data looks like JSON in case we are not talking to MonetDB
+                        if (data.starts_with("[") && data.ends_with("]"))
+                            || (data.starts_with("{") && data.ends_with("}"))
+                        {
+                            serde_json::from_str(&data).map_err(Into::into)
+                        } else {
+                            //TOOD: better error?
+                            return Err(DatumAccessError::SqlDataTypeMismatch(
+                                SqlDataTypeMismatch {
+                                    requested: "JSON",
+                                    queried,
+                                },
+                            ));
+                        }
+                    })
+                    .transpose()?
             }
-            queried => return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                requested: "JSON",
-                queried,
-            }))
+            queried => {
+                return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
+                    requested: "JSON",
+                    queried,
+                }))
+            }
         })
     }
 }
 
 /// Represents SQL table row of Column objects.
 pub struct Row<'r, 's, 'c, S> {
-    schema: &'r[ColumnType],
+    schema: &'r [ColumnType],
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
     columns: u16,
@@ -396,7 +403,11 @@ pub struct Row<'r, 's, 'c, S> {
 }
 
 impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
-    pub fn new(cursor: odbc::Cursor<'s, 'c, 'c, S>, schema: &'r[ColumnType], utf_16_strings: bool) -> Row<'r, 's, 'c, S> {
+    pub fn new(
+        cursor: odbc::Cursor<'s, 'c, 'c, S>,
+        schema: &'r [ColumnType],
+        utf_16_strings: bool,
+    ) -> Row<'r, 's, 'c, S> {
         Row {
             schema,
             cursor,
@@ -407,17 +418,19 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
     }
 
     pub fn shift_column<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S>> {
-        self.schema.get(self.index as usize).map(move |column_type| {
-            let column = Column {
-                column_type,
-                cursor: &mut self.cursor,
-                index: self.index,
-                utf_16_strings: self.utf_16_strings,
-            };
+        self.schema
+            .get(self.index as usize)
+            .map(move |column_type| {
+                let column = Column {
+                    column_type,
+                    cursor: &mut self.cursor,
+                    index: self.index,
+                    utf_16_strings: self.utf_16_strings,
+                };
 
-            self.index += 1;
-            column
-        })
+                self.index += 1;
+                column
+            })
     }
 
     pub fn columns(&self) -> u16 {

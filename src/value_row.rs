@@ -85,10 +85,7 @@ where
     T: TryFromValue,
 {
     type Error = RowConvertError;
-    fn try_from_row(
-        mut values: ValueRow,
-        _schema: &[ColumnType],
-    ) -> Result<Self, Self::Error> {
+    fn try_from_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
         if values.len() != 1 {
             return Err(RowConvertError::UnexpectedNumberOfColumns {
                 expected: 1,
@@ -284,10 +281,7 @@ mod tests {
 
     impl TryFromValueRow for Foo {
         type Error = Infallible;
-        fn try_from_row(
-            mut values: ValueRow,
-            _schema: &[ColumnType],
-        ) -> Result<Self, Self::Error> {
+        fn try_from_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
             Ok(values
                 .pop()
                 .map(|val| Foo {

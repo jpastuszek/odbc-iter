@@ -1,8 +1,8 @@
-use std::cell::RefCell;
 use log::debug;
+use std::cell::RefCell;
 
-use crate::{Odbc, OdbcError};
 use crate::query::Connection;
+use crate::{Odbc, OdbcError};
 
 thread_local! {
     static DB: RefCell<Option<Connection>> = RefCell::new(None);

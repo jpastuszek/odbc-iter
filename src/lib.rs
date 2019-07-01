@@ -258,8 +258,8 @@ pub use value::*;
 mod value_row;
 pub use value_row::*;
 
-pub mod thread_local;
 pub mod odbc_type;
+pub mod thread_local;
 
 // TODO
 // * avoid alocation of ValueRow when converting to Rust types

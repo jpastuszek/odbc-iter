@@ -1,8 +1,8 @@
+use crate::row::DatumType;
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
-use crate::row::DatumType;
 
 #[cfg(feature = "chrono")]
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -138,13 +138,17 @@ impl Value {
     #[cfg(feature = "chrono")]
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
         self.as_timestamp().map(|value| {
-            NaiveDate::from_ymd(i32::from(value.year), u32::from(value.month), u32::from(value.day))
-                .and_hms_nano(
-                    u32::from(value.hour),
-                    u32::from(value.minute),
-                    u32::from(value.second),
-                    value.fraction,
-                )
+            NaiveDate::from_ymd(
+                i32::from(value.year),
+                u32::from(value.month),
+                u32::from(value.day),
+            )
+            .and_hms_nano(
+                u32::from(value.hour),
+                u32::from(value.minute),
+                u32::from(value.second),
+                value.fraction,
+            )
         })
     }
 
@@ -165,7 +169,11 @@ impl Value {
     #[cfg(feature = "chrono")]
     pub fn to_naive_date(&self) -> Option<NaiveDate> {
         self.as_date().map(|value| {
-            NaiveDate::from_ymd(i32::from(value.year), u32::from(value.month), u32::from(value.day))
+            NaiveDate::from_ymd(
+                i32::from(value.year),
+                u32::from(value.month),
+                u32::from(value.day),
+            )
         })
     }
 

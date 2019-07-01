@@ -1,18 +1,18 @@
 use error_context::prelude::*;
 use log::{debug, log_enabled, trace};
 use odbc::{
-    Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord,
-    NoResult, ResultSetState, Statement, OdbcType, Prepared, Executed
+    Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord, Executed,
+    NoResult, OdbcType, Prepared, ResultSetState, Statement,
 };
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
-use std::convert::TryFrom;
 
-use crate::{Odbc, OdbcError};
-use crate::row::{UnsupportedSqlDataType, ColumnType};
-use crate::result_set::{ResultSet, ResultSetError, DataAccessError};
+use crate::result_set::{DataAccessError, ResultSet, ResultSetError};
+use crate::row::{ColumnType, UnsupportedSqlDataType};
 use crate::value_row::TryFromValueRow;
+use crate::{Odbc, OdbcError};
 
 /// Errors related to execution of queries.
 ///
@@ -166,7 +166,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Options {
         Options {
-            utf_16_strings: false
+            utf_16_strings: false,
         }
     }
 }
@@ -189,7 +189,9 @@ impl<'h> fmt::Debug for PreparedStatement<'h> {
 }
 
 impl<'h> PreparedStatement<'h> {
-    pub(crate) fn from_statement(statement: Statement<'h, 'h, odbc::Prepared, odbc::NoResult>) -> PreparedStatement<'h> {
+    pub(crate) fn from_statement(
+        statement: Statement<'h, 'h, odbc::Prepared, odbc::NoResult>,
+    ) -> PreparedStatement<'h> {
         PreparedStatement(statement)
     }
 
@@ -234,14 +236,14 @@ impl fmt::Debug for Connection {
 
 impl Connection {
     pub fn new(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
-        Self::with_options(
-            odbc,
-            connection_string,
-            Options::default()
-        )
+        Self::with_options(odbc, connection_string, Options::default())
     }
 
-    pub fn with_options(odbc: &'static Odbc, connection_string: &str, options: Options) -> Result<Connection, OdbcError> {
+    pub fn with_options(
+        odbc: &'static Odbc,
+        connection_string: &str,
+        options: Options,
+    ) -> Result<Connection, OdbcError> {
         odbc.environment
             .connect_with_connection_string(connection_string)
             .wrap_error_while("connecting to database")
@@ -297,7 +299,11 @@ impl<'h, 'c: 'h> Handle<'c> {
                 .wrap_error_while("executing direct statement")?,
         );
 
-        Ok(ResultSet::from_result(self, result_set, self.0.utf_16_strings)?)
+        Ok(ResultSet::from_result(
+            self,
+            result_set,
+            self.0.utf_16_strings,
+        )?)
     }
 
     /// Prepare statement for fast execution and parametrization.

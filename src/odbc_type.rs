@@ -16,13 +16,17 @@ mod sql_timestamp {
 
     impl UnixTimestamp {
         pub fn as_naive_date_time(&self) -> NaiveDateTime {
-            NaiveDate::from_ymd(i32::from(self.0.year), u32::from(self.0.month), u32::from(self.0.day))
-                .and_hms_nano(
-                    u32::from(self.0.hour),
-                    u32::from(self.0.minute),
-                    u32::from(self.0.second),
-                    self.0.fraction,
-                )
+            NaiveDate::from_ymd(
+                i32::from(self.0.year),
+                u32::from(self.0.month),
+                u32::from(self.0.day),
+            )
+            .and_hms_nano(
+                u32::from(self.0.hour),
+                u32::from(self.0.minute),
+                u32::from(self.0.second),
+                self.0.fraction,
+            )
         }
 
         pub fn into_inner(self) -> SqlTimestamp {
@@ -32,7 +36,8 @@ mod sql_timestamp {
 
     impl From<f64> for UnixTimestamp {
         fn from(ts: f64) -> UnixTimestamp {
-            let ts = NaiveDateTime::from_timestamp(ts as i64, (ts.fract() * 1_000_000_000.0) as u32);
+            let ts =
+                NaiveDateTime::from_timestamp(ts as i64, (ts.fract() * 1_000_000_000.0) as u32);
             ts.into()
         }
     }

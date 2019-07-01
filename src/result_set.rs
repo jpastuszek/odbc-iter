@@ -1,18 +1,16 @@
 use error_context::prelude::*;
-use odbc::{
-    ColumnDescriptor, DiagnosticRecord, Prepared, Executed, ResultSetState
-};
 use log::{debug, log_enabled, trace};
-use std::fmt;
-use std::error::Error;
+use odbc::{ColumnDescriptor, DiagnosticRecord, Executed, Prepared, ResultSetState};
 use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
 use std::marker::PhantomData;
 
-use crate::OdbcError;
 use crate::query::{Handle, PreparedStatement};
-use crate::row::{DatumAccessError, ColumnType, DatumType, Row, UnsupportedSqlDataType};
-use crate::value_row::TryFromValueRow;
+use crate::row::{ColumnType, DatumAccessError, DatumType, Row, UnsupportedSqlDataType};
 use crate::value::Value;
+use crate::value_row::TryFromValueRow;
+use crate::OdbcError;
 
 /// Error crating ResultSet iterator.
 #[derive(Debug)]
@@ -273,7 +271,9 @@ where
                     .close_cursor()
                     .wrap_error_while("closing cursor on executed prepared statement")?,
             )),
-            ExecutedStatement::NoResult(statement) => Ok(PreparedStatement::from_statement(statement)),
+            ExecutedStatement::NoResult(statement) => {
+                Ok(PreparedStatement::from_statement(statement))
+            }
         }
     }
 
@@ -343,38 +343,53 @@ where
         let utf_16_strings = self.utf_16_strings;
         let schema = &self.schema;
 
-        statement.fetch().wrap_error_while("fetching row").transpose().map(|cursor| {
-            let mut row = Row::new(cursor?, schema, utf_16_strings);
+        statement
+            .fetch()
+            .wrap_error_while("fetching row")
+            .transpose()
+            .map(|cursor| {
+                let mut row = Row::new(cursor?, schema, utf_16_strings);
 
-            let mut value_row = Vec::with_capacity(row.columns() as usize);
+                let mut value_row = Vec::with_capacity(row.columns() as usize);
 
-            loop {
-                if let Some(column) = row.shift_column() {
-                    let value = match column.column_type().datum_type {
-                        DatumType::Bit => column.into_bool()?.map(Value::from),
-                        DatumType::Tinyint => column.into_i8()?.map(Value::from),
-                        DatumType::Smallint => column.into_i16()?.map(Value::from),
-                        DatumType::Integer => column.into_i32()?.map(Value::from),
-                        DatumType::Bigint => column.into_i64()?.map(Value::from),
-                        DatumType::Float => column.into_f32()?.map(Value::from),
-                        DatumType::Double => column.into_f64()?.map(Value::from),
-                        DatumType::String => column.into_string()?.map(Value::from),
-                        DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
-                        DatumType::Date => column.into_date()?.map(Value::from),
-                        DatumType::Time => column.into_time()?.map(Value::from),
-                        #[cfg(feature = "serde_json")]
-                        DatumType::Json => column.into_json()?.map(Value::from),
-                    };
-                    value_row.push(value)
-                } else {
-                    return Ok(value_row);
+                loop {
+                    if let Some(column) = row.shift_column() {
+                        let value = match column.column_type().datum_type {
+                            DatumType::Bit => column.into_bool()?.map(Value::from),
+                            DatumType::Tinyint => column.into_i8()?.map(Value::from),
+                            DatumType::Smallint => column.into_i16()?.map(Value::from),
+                            DatumType::Integer => column.into_i32()?.map(Value::from),
+                            DatumType::Bigint => column.into_i64()?.map(Value::from),
+                            DatumType::Float => column.into_f32()?.map(Value::from),
+                            DatumType::Double => column.into_f64()?.map(Value::from),
+                            DatumType::String => column.into_string()?.map(Value::from),
+                            DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
+                            DatumType::Date => column.into_date()?.map(Value::from),
+                            DatumType::Time => column.into_time()?.map(Value::from),
+                            #[cfg(feature = "serde_json")]
+                            DatumType::Json => column.into_json()?.map(Value::from),
+                        };
+                        value_row.push(value)
+                    } else {
+                        return Ok(value_row);
+                    }
                 }
-            }
-        })
-        .map(|v| v.and_then(|v| {
-            // Verify that value types match schema
-            debug_assert!(v.iter().map(|v| v.as_ref().map(Value::datum_type)).zip(self.schema()).all(|(v, s)| if let Some(v) = v { v == s.datum_type } else { true }));
-            TryFromValueRow::try_from_row(v, self.schema()).map_err(|err| DataAccessError::FromRowError(Box::new(err)))
-        }))
+            })
+            .map(|v| {
+                v.and_then(|v| {
+                    // Verify that value types match schema
+                    debug_assert!(v
+                        .iter()
+                        .map(|v| v.as_ref().map(Value::datum_type))
+                        .zip(self.schema())
+                        .all(|(v, s)| if let Some(v) = v {
+                            v == s.datum_type
+                        } else {
+                            true
+                        }));
+                    TryFromValueRow::try_from_row(v, self.schema())
+                        .map_err(|err| DataAccessError::FromRowError(Box::new(err)))
+                })
+            })
     }
 }
