@@ -393,3 +393,306 @@ where
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[allow(unused_imports)]
+    use crate::{Odbc, TryFromValueRow, ValueRow, ColumnType};
+    #[allow(unused_imports)]
+    use assert_matches::assert_matches;
+
+    use std::convert::Infallible;
+
+    #[derive(Debug)]
+    struct Foo {
+        val: i64,
+    }
+
+    impl TryFromValueRow for Foo {
+        type Error = Infallible;
+        fn try_from_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
+            Ok(values
+                .pop()
+                .map(|val| Foo {
+                    val: val.and_then(|v| v.to_i64()).expect("val to be an bigint"),
+                })
+                .expect("value"))
+        }
+    }
+
+    use crate::value::Value;
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_custom_type() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let foo: Foo = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT) AS val;")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(foo.val, 42);
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_single_value() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: Value = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.to_i64().unwrap(), 42);
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_single_nullable_value() {
+        let mut db = crate::tests::connect_monetdb();;
+
+        let value: Option<Value> = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_some());
+        assert_eq!(value.unwrap().to_i64().unwrap(), 42);
+
+        let value: Option<Value> = db
+            .handle()
+            .query("SELECT CAST(NULL AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_value_row() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: ValueRow = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT), CAST(22 AS INTEGER)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.len(), 2);
+        assert_eq!(value[0].as_ref().unwrap().to_i64().unwrap(), 42);
+        assert_eq!(value[1].as_ref().unwrap().to_i32().unwrap(), 22);
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_single_copy() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: bool = db
+            .handle()
+            .query("SELECT true")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value, true);
+
+        let value: Option<bool> = db
+            .handle()
+            .query("SELECT true")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap(), true);
+
+        let value: Option<bool> = db
+            .handle()
+            .query("SELECT CAST(NULL AS BOOL)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+
+        let value: i64 = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value, 42);
+
+        let value: Option<i64> = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap(), 42i64);
+
+        let value: Option<i64> = db
+            .handle()
+            .query("SELECT CAST(NULL AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_single_unsigned() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: Option<u64> = db
+            .handle()
+            .query("SELECT CAST(42 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap(), 42u64);
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    #[should_panic(expected = "ValueOutOfRange")]
+    fn test_single_unsigned_err() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let _value: Option<u64> = db
+            .handle()
+            .query("SELECT CAST(-666 AS BIGINT)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_single_string() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: String = db
+            .handle()
+            .query("SELECT 'foo'")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value, "foo");
+
+        let value: Option<String> = db
+            .handle()
+            .query("SELECT 'foo'")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.unwrap(), "foo");
+
+        let value: Option<String> = db
+            .handle()
+            .query("SELECT CAST(NULL AS STRING)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "chrono")]
+    #[cfg(feature = "test-monetdb")]
+    fn test_single_date() {
+        use chrono::Datelike;
+        use chrono::NaiveDate;
+
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: NaiveDate = db
+            .handle()
+            .query("SELECT CAST('2019-04-02' AS DATE)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.year(), 2019);
+        assert_eq!(value.month(), 4);
+        assert_eq!(value.day(), 2);
+
+        let value: Option<NaiveDate> = db
+            .handle()
+            .query("SELECT CAST('2019-04-02' AS DATE)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(value.unwrap().year(), 2019);
+        assert_eq!(value.unwrap().month(), 4);
+        assert_eq!(value.unwrap().day(), 2);
+
+        let value: Option<NaiveDate> = db
+            .handle()
+            .query("SELECT CAST(NULL AS DATE)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    fn test_tuple_value() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: (String, i64, bool) = db
+            .handle()
+            .query("SELECT 'foo', CAST(42 AS BIGINT), true")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.0, "foo");
+        assert_eq!(value.1, 42);
+        assert_eq!(value.2, true);
+
+        let value: (Option<String>, i64, Option<bool>) = db
+            .handle()
+            .query("SELECT 'foo', CAST(42 AS BIGINT), true")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.0.unwrap(), "foo");
+        assert_eq!(value.1, 42);
+        assert_eq!(value.2.unwrap(), true);
+
+        let value: (Option<String>, i64, Option<bool>) = db
+            .handle()
+            .query("SELECT CAST(NULL AS STRING), CAST(42 AS BIGINT), CAST(NULL AS BOOL)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(&value.0.is_none());
+        assert_eq!(value.1, 42);
+        assert!(value.2.is_none());
+    }
+}
