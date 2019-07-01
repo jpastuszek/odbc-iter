@@ -1,4 +1,4 @@
-use crate::row::ColumnType;
+use crate::row::{Row, ColumnType, DatumType, TryFromRow, DatumAccessError};
 use crate::value::{TryFromValue, Value};
 use std::convert::Infallible;
 use std::error::Error;
@@ -8,6 +8,37 @@ use std::fmt;
 ///
 /// This objects are constructed from row data returned by ODBC library and can be further converted to types implementing `TryFromValueRow`/`TryFromValue` traits.
 pub type ValueRow = Vec<Option<Value>>;
+
+impl TryFromRow for ValueRow {
+    type Error = DatumAccessError;
+
+    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+        let mut value_row = Vec::with_capacity(row.columns() as usize);
+
+        loop {
+            if let Some(column) = row.shift_column() {
+                let value = match column.column_type().datum_type {
+                    DatumType::Bit => column.into_bool()?.map(Value::from),
+                    DatumType::Tinyint => column.into_i8()?.map(Value::from),
+                    DatumType::Smallint => column.into_i16()?.map(Value::from),
+                    DatumType::Integer => column.into_i32()?.map(Value::from),
+                    DatumType::Bigint => column.into_i64()?.map(Value::from),
+                    DatumType::Float => column.into_f32()?.map(Value::from),
+                    DatumType::Double => column.into_f64()?.map(Value::from),
+                    DatumType::String => column.into_string()?.map(Value::from),
+                    DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
+                    DatumType::Date => column.into_date()?.map(Value::from),
+                    DatumType::Time => column.into_time()?.map(Value::from),
+                    #[cfg(feature = "serde_json")]
+                    DatumType::Json => column.into_json()?.map(Value::from),
+                };
+                value_row.push(value)
+            } else {
+                return Ok(value_row);
+            }
+        }
+    }
+}
 
 // Note: TryFrom/TryInto cannot be implemented since we need to own the trait
 
@@ -21,7 +52,7 @@ pub type ValueRow = Vec<Option<Value>>;
 pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
     /// Given `ColumnType` convert from `ValueRow` to other type of value representing table row.
-    fn try_from_row(values: ValueRow, schema: &[ColumnType]) -> Result<Self, Self::Error>;
+    fn try_from_value_row(values: ValueRow, schema: &[ColumnType]) -> Result<Self, Self::Error>;
 }
 
 /// Errors that may happen during conversion of `ValueRow` to given type.
@@ -66,7 +97,7 @@ impl Error for RowConvertError {
 /// Allow to retrieve unconverted `ValueRow` as item of `ResultSet` iterator.
 impl TryFromValueRow for ValueRow {
     type Error = Infallible;
-    fn try_from_row(values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
+    fn try_from_value_row(values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
         Ok(values)
     }
 }
@@ -74,7 +105,7 @@ impl TryFromValueRow for ValueRow {
 /// Unit can be used to signal that no rows of data should be produced.
 impl TryFromValueRow for () {
     type Error = RowConvertError;
-    fn try_from_row(_values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
+    fn try_from_value_row(_values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
@@ -85,7 +116,7 @@ where
     T: TryFromValue,
 {
     type Error = RowConvertError;
-    fn try_from_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
+    fn try_from_value_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
         if values.len() != 1 {
             return Err(RowConvertError::UnexpectedNumberOfColumns {
                 expected: 1,
@@ -147,7 +178,7 @@ macro_rules! try_from_tuple {
         $(
             impl<$($T: TryFromValue),+> TryFromValueRow for ($($T,)+) {
                 type Error = RowConvertTupleError;
-                fn try_from_row(values: ValueRow, _schema: &[ColumnType]) -> Result<($($T,)+), Self::Error> {
+                fn try_from_value_row(values: ValueRow, _schema: &[ColumnType]) -> Result<($($T,)+), Self::Error> {
                     if values.len() != count!($($T)+) {
                         return Err(RowConvertTupleError::UnexpectedNumberOfColumns { expected: values.len() as u16, tuple: stringify![($($T,)+)] })
                     }
@@ -280,7 +311,7 @@ mod tests {
 
     impl TryFromValueRow for Foo {
         type Error = Infallible;
-        fn try_from_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
+        fn try_from_value_row(mut values: ValueRow, _schema: &[ColumnType]) -> Result<Self, Self::Error> {
             Ok(values
                 .pop()
                 .map(|val| Foo {
@@ -295,7 +326,7 @@ mod tests {
     #[test]
     fn test_custom_type() {
         let test_row: ValueRow = vec![Some(Value::Bigint(42))];
-        let foo: Foo = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let foo: Foo = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(foo.val, 42);
     }
@@ -303,7 +334,7 @@ mod tests {
     #[test]
     fn test_single_value() {
         let test_row: ValueRow = vec![Some(Value::Bigint(42))];
-        let value: Value = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Value = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.to_i64().unwrap(), 42);
     }
@@ -311,13 +342,13 @@ mod tests {
     #[test]
     fn test_single_nullable_value() {
         let test_row: ValueRow = vec![Some(Value::Bigint(42))];
-        let value: Option<Value> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<Value> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(value.is_some());
         assert_eq!(value.unwrap().to_i64().unwrap(), 42);
 
         let test_row: ValueRow = vec![None];
-        let value: Option<Value> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<Value> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(value.is_none());
     }
@@ -325,7 +356,7 @@ mod tests {
     #[test]
     fn test_value_row() {
         let test_row: ValueRow = vec![Some(Value::Bigint(42)), Some(Value::Integer(22))];
-        let value: ValueRow = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: ValueRow = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.len(), 2);
         assert_eq!(value[0].as_ref().unwrap().to_i64().unwrap(), 42);
@@ -335,32 +366,32 @@ mod tests {
     #[test]
     fn test_single_copy() {
         let test_row: ValueRow = vec![Some(Value::Bit(true))];
-        let value: bool = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: bool = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value, true);
 
         let test_row: ValueRow = vec![Some(Value::Bit(true))];
-        let value: Option<bool> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<bool> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.unwrap(), true);
 
         let test_row: ValueRow = vec![None];
-        let value: Option<bool> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<bool> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(value.is_none());
 
         let test_row: ValueRow = vec![Some(Value::Bigint(42))];
-        let value: i64 = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: i64 = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value, 42);
 
         let test_row: ValueRow = vec![Some(Value::Bigint(42))];
-        let value: Option<i64> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<i64> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.unwrap(), 42i64);
 
         let test_row: ValueRow = vec![None];
-        let value: Option<i64> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<i64> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(value.is_none());
     }
@@ -368,7 +399,7 @@ mod tests {
     #[test]
     fn test_single_unsigned() {
         let test_row: ValueRow = vec![Some(Value::Bigint(42))];
-        let value: Option<u64> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<u64> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.unwrap(), 42u64);
     }
@@ -377,23 +408,23 @@ mod tests {
     #[should_panic(expected = "ValueOutOfRange")]
     fn test_single_unsigned_err() {
         let test_row: ValueRow = vec![Some(Value::Bigint(-666))];
-        let _value: Option<u64> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let _value: Option<u64> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
     }
 
     #[test]
     fn test_single_string() {
         let test_row: ValueRow = vec![Some(Value::String("foo".into()))];
-        let value: String = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: String = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(&value, "foo");
 
         let test_row: ValueRow = vec![Some(Value::String("foo".into()))];
-        let value: Option<String> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<String> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(&value.unwrap(), "foo");
 
         let test_row: ValueRow = vec![None];
-        let value: Option<String> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<String> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(value.is_none());
     }
@@ -405,21 +436,21 @@ mod tests {
         use chrono::NaiveDate;
 
         let test_row: ValueRow = vec![Some(Value::Date(odbc::SqlDate { year: 2019, month: 4, day: 2 }))];
-        let value: NaiveDate = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: NaiveDate = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.year(), 2019);
         assert_eq!(value.month(), 4);
         assert_eq!(value.day(), 2);
 
         let test_row: ValueRow = vec![Some(Value::Date(odbc::SqlDate { year: 2019, month: 4, day: 2 }))];
-        let value: Option<NaiveDate> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<NaiveDate> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(value.unwrap().year(), 2019);
         assert_eq!(value.unwrap().month(), 4);
         assert_eq!(value.unwrap().day(), 2);
 
         let test_row: ValueRow = vec![None];
-        let value: Option<NaiveDate> = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: Option<NaiveDate> = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(value.is_none());
     }
@@ -427,21 +458,21 @@ mod tests {
     #[test]
     fn test_tuple_value() {
         let test_row: ValueRow = vec![Some(Value::String("foo".into())), Some(Value::Bigint(42)), Some(Value::Bit(true))];
-        let value: (String, i64, bool) = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: (String, i64, bool) = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(&value.0, "foo");
         assert_eq!(value.1, 42);
         assert_eq!(value.2, true);
 
         let test_row: ValueRow = vec![Some(Value::String("foo".into())), Some(Value::Bigint(42)), Some(Value::Bit(true))];
-        let value: (Option<String>, i64, Option<bool>) = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: (Option<String>, i64, Option<bool>) = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert_eq!(&value.0.unwrap(), "foo");
         assert_eq!(value.1, 42);
         assert_eq!(value.2.unwrap(), true);
 
         let test_row: ValueRow = vec![None, Some(Value::Bigint(42)), None];
-        let value: (Option<String>, i64, Option<bool>) = TryFromValueRow::try_from_row(test_row, &[]).expect("failed to convert");
+        let value: (Option<String>, i64, Option<bool>) = TryFromValueRow::try_from_value_row(test_row, &[]).expect("failed to convert");
 
         assert!(&value.0.is_none());
         assert_eq!(value.1, 42);
@@ -454,7 +485,7 @@ mod tests {
         type Test = (Option<bool>, Option<u32>, Option<String>);
 
         //let (b, u, s): (Option<bool>, Option<u32>, Option<String>) = test_row.try_into().unwrap();
-        let (b, u, s) = Test::try_from_row(test_row, &[]).unwrap();
+        let (b, u, s) = Test::try_from_value_row(test_row, &[]).unwrap();
         assert_eq!(b, Some(true));
         assert_eq!(u, Some(42));
         assert_eq!(s, None);

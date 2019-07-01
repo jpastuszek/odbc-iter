@@ -437,3 +437,24 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
         self.columns
     }
 }
+
+
+/// Column values can be converted to types implementing this trait.
+///
+/// This trait is implemented for primitive Rust types, `String` and `chrono` date and time types.
+pub trait TryFromColumn: Sized {
+    type Error: Error + 'static;
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error>;
+}
+
+/// This traits allow for conversion of `Row` type representing ODBC cursor used internally by `ResultSet` iterator to any other type returned as `Item` that implements it.
+///
+/// This trait is implemented for Rust tuple type enabling conversion of rows to tuples of types implementing `TryFromValue`.
+/// Also this trait implementation allows to convert single column rows to types implementing `TryFromColumn`.
+///
+/// This trait can be implemented for custom objects. This will enable them to be queried directly from database as `Item` of `ResultSet` iterator.
+pub trait TryFromRow: Sized {
+    type Error: Error + 'static;
+    /// Given `ColumnType` convert from `Row` to other type of value representing table row.
+    fn try_from_row<'r, 's, 'c, S>(row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error>;
+}
