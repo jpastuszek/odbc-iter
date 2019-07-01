@@ -1,4 +1,4 @@
-use crate::row::{Row, ColumnType, DatumType, TryFromRow, DatumAccessError};
+use crate::row::{Row, ColumnType, TryFromColumn, TryFromRow, DatumAccessError};
 use crate::value::{TryFromValue, Value};
 use std::convert::Infallible;
 use std::error::Error;
@@ -17,22 +17,7 @@ impl TryFromRow for ValueRow {
 
         loop {
             if let Some(column) = row.shift_column() {
-                let value = match column.column_type().datum_type {
-                    DatumType::Bit => column.into_bool()?.map(Value::from),
-                    DatumType::Tinyint => column.into_i8()?.map(Value::from),
-                    DatumType::Smallint => column.into_i16()?.map(Value::from),
-                    DatumType::Integer => column.into_i32()?.map(Value::from),
-                    DatumType::Bigint => column.into_i64()?.map(Value::from),
-                    DatumType::Float => column.into_f32()?.map(Value::from),
-                    DatumType::Double => column.into_f64()?.map(Value::from),
-                    DatumType::String => column.into_string()?.map(Value::from),
-                    DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
-                    DatumType::Date => column.into_date()?.map(Value::from),
-                    DatumType::Time => column.into_time()?.map(Value::from),
-                    #[cfg(feature = "serde_json")]
-                    DatumType::Json => column.into_json()?.map(Value::from),
-                };
-                value_row.push(value)
+                value_row.push(TryFromColumn::try_from_column(column)?)
             } else {
                 return Ok(value_row);
             }

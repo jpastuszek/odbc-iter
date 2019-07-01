@@ -1,4 +1,4 @@
-use crate::row::DatumType;
+use crate::row::{DatumType, Column, TryFromColumn, DatumAccessError};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
@@ -367,6 +367,28 @@ impl From<SqlSsTime2> for Value {
 impl From<serde_json::Value> for Value {
     fn from(value: serde_json::Value) -> Value {
         Value::Json(value)
+    }
+}
+
+impl TryFromColumn for Option<Value> {
+    type Error = DatumAccessError;
+
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+        Ok(match column.column_type().datum_type {
+            DatumType::Bit => column.into_bool()?.map(Value::from),
+            DatumType::Tinyint => column.into_i8()?.map(Value::from),
+            DatumType::Smallint => column.into_i16()?.map(Value::from),
+            DatumType::Integer => column.into_i32()?.map(Value::from),
+            DatumType::Bigint => column.into_i64()?.map(Value::from),
+            DatumType::Float => column.into_f32()?.map(Value::from),
+            DatumType::Double => column.into_f64()?.map(Value::from),
+            DatumType::String => column.into_string()?.map(Value::from),
+            DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
+            DatumType::Date => column.into_date()?.map(Value::from),
+            DatumType::Time => column.into_time()?.map(Value::from),
+            #[cfg(feature = "serde_json")]
+            DatumType::Json => column.into_json()?.map(Value::from),
+        })
     }
 }
 
