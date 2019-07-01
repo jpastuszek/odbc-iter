@@ -1,4 +1,4 @@
-use crate::ColumnType;
+use crate::row::ColumnType;
 use crate::value::{TryFromValue, Value};
 use std::convert::Infallible;
 use std::error::Error;

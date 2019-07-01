@@ -1,16 +1,19 @@
-use crate::*;
 use std::cell::RefCell;
+use log::debug;
+
+use crate::{Odbc, OdbcError};
+use crate::query::Connection;
 
 thread_local! {
     static DB: RefCell<Option<Connection>> = RefCell::new(None);
 }
 
 /// Access to thread local connection.
-/// 
+///
 /// Provided closure will receive the `Connection` object and may return it for reuse by another call or drop it to force new connection to be established to database on next call.
-/// 
+///
 /// If there was an error during connection it is provided to the closure. Next call will attempt to connect again and a new error may be provided.
-/// 
+///
 /// `connection_string` is used only when making new `Connection` object initially, after error or after old `Connection` object was dropped.
 pub fn connection_with<O>(
     connection_string: &str,
@@ -43,6 +46,7 @@ pub fn connection_with<O>(
 mod tests {
     #[allow(unused_imports)]
     use super::*;
+    use crate::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
 

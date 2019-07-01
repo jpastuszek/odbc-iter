@@ -8,7 +8,8 @@ use std::error::Error;
 use std::convert::TryFrom;
 use std::marker::PhantomData;
 
-use crate::{OdbcError, Handle, PreparedStatement};
+use crate::OdbcError;
+use crate::query::{Handle, PreparedStatement};
 use crate::row::{DatumAccessError, ColumnType, DatumType, Row, UnsupportedSqlDataType};
 use crate::value_row::TryFromValueRow;
 use crate::value::Value;
@@ -265,12 +266,12 @@ where
     /// Close the result set and discard any not consumed rows.
     pub fn close(mut self) -> Result<PreparedStatement<'c>, OdbcError> {
         match self.statement.take().unwrap() {
-            ExecutedStatement::HasResult(statement) => Ok(PreparedStatement(
+            ExecutedStatement::HasResult(statement) => Ok(PreparedStatement::from_statement(
                 statement
                     .close_cursor()
                     .wrap_error_while("closing cursor on executed prepared statement")?,
             )),
-            ExecutedStatement::NoResult(statement) => Ok(PreparedStatement(statement)),
+            ExecutedStatement::NoResult(statement) => Ok(PreparedStatement::from_statement(statement)),
         }
     }
 

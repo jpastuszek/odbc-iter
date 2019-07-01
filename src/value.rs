@@ -2,7 +2,7 @@ use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
-use crate::DatumType;
+use crate::row::DatumType;
 
 #[cfg(feature = "chrono")]
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
