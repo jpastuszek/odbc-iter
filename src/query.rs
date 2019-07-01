@@ -255,9 +255,12 @@ impl Connection {
     }
 }
 
-/// Blocks access to `Connection` for duration of query.
+/// Statically ensures that `Connection` can only be used after `ResultSet` was consumed to avoid runtime
+/// errors.
 ///
-/// Statically ensures that query result set is consumed before next query can be executed on this connection.
+/// Operations on `Connection` are only alowed after `ResultSet` was dropped.
+/// Allocated `PreparedStatement` objects reference `Connection` directly so `Handle` can be still used to
+/// query or allocate more `PreparedStatement` objects.
 #[derive(Debug)]
 pub struct Handle<'c>(&'c Connection);
 
