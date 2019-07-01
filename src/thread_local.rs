@@ -46,6 +46,7 @@ pub fn connection_with<O>(
 mod tests {
     #[allow(unused_imports)]
     use super::*;
+    #[allow(unused_imports)]
     use crate::*;
     #[allow(unused_imports)]
     use assert_matches::assert_matches;

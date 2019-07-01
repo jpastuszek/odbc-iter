@@ -397,7 +397,7 @@ where
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
-    use crate::{Odbc, TryFromValueRow, ValueRow, ColumnType};
+    use crate::{Odbc, TryFromValueRow, ValueRow, ColumnType, Value};
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
 
@@ -419,8 +419,6 @@ mod tests {
                 .expect("value"))
         }
     }
-
-    use crate::value::Value;
 
     #[test]
     #[cfg(feature = "test-monetdb")]
