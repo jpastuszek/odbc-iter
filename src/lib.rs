@@ -1,11 +1,19 @@
 /*!
-`odbc-iter` is Rust high level database access library based on `odbc` crate.
+`odbc-iter` is a Rust high level database access library based on `odbc` crate that uses native ODBC drivers to access a variety of databases.
 
 With this library you can:
-* connect to any database supporting ODBC (e.g. via `unixodbc` library and ODBC database driver),
+* connect to any database supporting ODBC standard (e.g. via `unixodbc` library and ODBC database driver),
 * run one-off, prepared or parametrized queries,
-* iterate result set via standard `Iterator` interface with automatically converted rows into tuples of Rust standard types or custom types by implementing a trait,
+* iterate result set via standard `Iterator` interface,
+* automatically convert rows into:
+    * tuples of Rust standard types,
+    * custom type implementing a trait,
+    * vector of dynamicaly typed values,
 * create thread local connections for multithreaded applications.
+
+Things still missing:
+* support for `DECIMAL` types - currently `DECIMAL` columns need to ba cast to `DOUBLE` on the query (PR welcome),
+* rest of this list - please open issue in `GitHub` issue tracker for missing functionality, bugs, etc..
 
 Example usage
 =============
@@ -34,7 +42,7 @@ for row in db.query::<String>("SELECT 'hello world' UNION SELECT 'foo bar'").exp
 // hello world
 // foo bar
 
-// Iterate rows multiple columns
+// Iterate rows with multiple columns
 for row in db.query::<(String, i8)>("SELECT 'hello world', CAST(24 AS TINYINT) UNION SELECT 'foo bar', CAST(32 AS TINYINT)").expect("failed to run query") {
     let (string, number) = row.expect("failed to fetch row");
     println!("{} {}", string, number);
@@ -43,7 +51,7 @@ for row in db.query::<(String, i8)>("SELECT 'hello world', CAST(24 AS TINYINT) U
 // hello world 24
 // foo bar 32
 
-// Iterate rows dynamic `ValueRow` type that can represent any supported database row
+// Iterate rows with dynamically typed values using `ValueRow` type that can represent any row
 for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar', 32").expect("failed to run query") {
     println!("{:?}", row.expect("failed to fetch row"))
 }
@@ -65,33 +73,32 @@ let mut connection = Odbc::connect(&connection_string).expect("failed to connect
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
 
+// Allocate `PreparedStatement` on given connection
 let prepared_statement = db
     .prepare("SELECT 'hello world' AS foo, CAST(42 AS INTEGER) AS bar, CAST(10000000 AS BIGINT) AS baz")
     .expect("prepare prepared_statement");
 
+// Use `?` as placeholder for value
 let parametrized_query = db
     .prepare("SELECT ?, ?, ?")
     .expect("prepare parametrized_query");
 
-
 // Database can infer schema of prepared statement
 println!("{:?}", prepared_statement.schema());
 // Prints:
-// Ok([ColumnType { datum_type: String, nullable: false, name: "foo" }, ColumnType { datum_type: Integer, nullable: true, name: "bar" }, ColumnType { datum_type: Bigint, nullable: true, name: "baz" }])
-
+// Ok([ColumnType { datum_type: String, odbc_type: SQL_VARCHAR, nullable: false, name: "foo" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: "bar" }, ColumnType { datum_type: Bigint, odbc_type: SQL_EXT_BIGINT, nullable: true, name: "baz" }])
 
 // Execute prepared statement without binding parameters
 let result_set = db
     .execute::<ValueRow>(prepared_statement)
     .expect("failed to run query");
 
-// Note that in this example prepared_statement will be dropped with the result_set iterator and cannot be reused
+// Note that in this example `prepared_statement` will be dropped with the `result_set` iterator and cannot be reused
 for row in result_set {
     println!("{:?}", row.expect("failed to fetch row"))
 }
 // Prints:
 // [Some(String("hello world")), Some(Integer(42)), Some(Bigint(10000000))]
-
 
 // Execute parametrized query by binding parameters to statement
 let mut result_set = db
@@ -103,14 +110,14 @@ let mut result_set = db
     })
     .expect("failed to run query");
 
-// Passing &mut reference so we don't loose access to result_set
+// Passing `&mut` reference so we don't lose access to `result_set`
 for row in &mut result_set {
     println!("{:?}", row.expect("failed to fetch row"))
 }
 // Prints:
 // [Some(String("hello world")), Some(Integer(43)), Some(Bigint(1000000))]
 
-// Get back the statement for later use
+// Get back the statement for later use dropping any unconsumed rows
 let parametrized_query = result_set.close().expect("failed to close result set");
 
 // Bind new set of parameters to prepared statement
@@ -138,7 +145,7 @@ use odbc_iter::{Odbc, ValueRow};
 // Connect to database using connection string
 let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
 
-// `connection_with` can be used to create one connection per thread (assuming thread pool is used)
+// `connection_with` can be used to create one connection per thread
 let result = odbc_iter::thread_local::connection_with(&connection_string, |mut connection| {
     // Provided object contains result of the connection operation; in case of error calling
     // `connection_with` again will result in new connection attempt
@@ -152,7 +159,7 @@ let result = odbc_iter::thread_local::connection_with(&connection_string, |mut c
 
     // Return connection back to thread local so it can be reused later on along with the result of
     // the query that will be returned by the `connection_with` call
-    // Returning None connection is useful to force reconnect on the next call e.g. after some error
+    // Returning `None` connection is useful to force new connection attempt on the next call
     (Some(connection), result)
 });
 
