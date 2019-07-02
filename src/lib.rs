@@ -261,18 +261,6 @@ pub use value_row::*;
 pub mod odbc_type;
 pub mod thread_local;
 
-// TODO
-// * Prepared statement cache:
-// ** db.with_statement_cache() -> StatementCache
-// ** sc.query(str) - direct query
-// ** sc.query_prepared(impl ToString + Hash) - hash fist and look up in cache if found execute; .to_string otherwise and prepare + execute;
-//    this is to avoid building query strings where we know hash e.g. from some other value than query string itself
-// ** sc.clear() - try close the statement and clear the cache
-// * MultiConnection - special handle that does not require mutable reference to query but will automatically crate and manage connections if one is already busy
-// ** Connections behind RefCell, get Handle for each query
-// ** If connection RefCell is busy crate check next connection in the pool or add new one if all are busy
-// ** This will require statement cache per connection to support prepared statements as they have to be managed per connection
-
 /// ODBC library initialization and connection errors.
 #[derive(Debug)]
 pub struct OdbcError(Option<DiagnosticRecord>, &'static str);

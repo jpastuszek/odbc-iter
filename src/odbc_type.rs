@@ -1,6 +1,6 @@
-//! Extra types that represent SQL data values but with extra from/to impls that implement `OdbcType` so they can be bound to query parameter
+//! Extra types that represent SQL data values but with extra from/to implementations for `OdbcType` so they can be bound to query parameter
 
-/// Allow for custom OdbcType impl for binning
+// Allow for custom type implementation
 pub use odbc::{ffi, OdbcType};
 
 #[cfg(feature = "chrono")]

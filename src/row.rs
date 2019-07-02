@@ -188,7 +188,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
     }
 }
 
-/// Represents SQL table column which can ba converted to Rust native type.
+/// Represents SQL table column which can be converted to Rust native type.
 pub struct Column<'r, 's, 'c, S> {
     column_type: &'r ColumnType,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
