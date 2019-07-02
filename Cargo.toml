@@ -1,10 +1,15 @@
 [package]
 name = "odbc-iter"
 version = "0.1.0"
-authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
+authors = ["Jakub Pastuszek <jpastuszek@protonmail.com>"]
+description = "High level database access library based on 'odbc' crate that uses native ODBC drivers to access variety of databases"
+readme = "README.md"
+keywords = ["odbc", "orm", "database"]
+categories = ["database"]
+license = "MIT"
 edition = "2018"
 
-[features] # no features by default
+[features]
 default = ["chrono"]
 test-hive = []
 test-sql-server = []
