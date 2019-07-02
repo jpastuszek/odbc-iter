@@ -25,17 +25,21 @@ Connect and run one-off queries with row type conversion
 use odbc_iter::{Odbc, ValueRow};
 
 // Connect to database using connection string
-let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
-let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+let mut connection = Odbc::connect(&connection_string)
+    .expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
 
 // Get single row single column value
-println!("{}", db.query::<String>("SELECT 'hello world'").expect("failed to run query").single().expect("failed to fetch row"));
+println!("{}", db.query::<String>("SELECT 'hello world'").expect("failed to run query")
+    .single().expect("failed to fetch row"));
 
 // Iterate rows with single column
-for row in db.query::<String>("SELECT 'hello world' UNION SELECT 'foo bar'").expect("failed to run query") {
+for row in db.query::<String>("SELECT 'hello world' UNION SELECT 'foo bar'")
+    .expect("failed to run query") {
     println!("{}", row.expect("failed to fetch row"))
 }
 // Prints:
@@ -43,7 +47,9 @@ for row in db.query::<String>("SELECT 'hello world' UNION SELECT 'foo bar'").exp
 // foo bar
 
 // Iterate rows with multiple columns
-for row in db.query::<(String, i8)>("SELECT 'hello world', CAST(24 AS TINYINT) UNION SELECT 'foo bar', CAST(32 AS TINYINT)").expect("failed to run query") {
+for row in db.query::<(String, i8)>(
+    "SELECT 'hello world', CAST(24 AS TINYINT) UNION SELECT 'foo bar', CAST(32 AS TINYINT)")
+    .expect("failed to run query") {
     let (string, number) = row.expect("failed to fetch row");
     println!("{} {}", string, number);
 }
@@ -51,8 +57,10 @@ for row in db.query::<(String, i8)>("SELECT 'hello world', CAST(24 AS TINYINT) U
 // hello world 24
 // foo bar 32
 
-// Iterate rows with dynamically typed values using `ValueRow` type that can represent any row
-for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar', 32").expect("failed to run query") {
+// Iterate rows with dynamically typed values using `ValueRow` type that can represent 
+// any row
+for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar', 32")
+    .expect("failed to run query") {
     println!("{:?}", row.expect("failed to fetch row"))
 }
 // Prints:
@@ -67,8 +75,10 @@ Using prepared statements and parametrized queries
 use odbc_iter::{Odbc, ValueRow};
 
 // Connect to database using connection string
-let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
-let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+let mut connection = Odbc::connect(&connection_string)
+    .expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
@@ -86,14 +96,17 @@ let parametrized_query = db
 // Database can infer schema of prepared statement
 println!("{:?}", prepared_statement.schema());
 // Prints:
-// Ok([ColumnType { datum_type: String, odbc_type: SQL_VARCHAR, nullable: false, name: "foo" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: "bar" }, ColumnType { datum_type: Bigint, odbc_type: SQL_EXT_BIGINT, nullable: true, name: "baz" }])
+// Ok([ColumnType { datum_type: String, odbc_type: SQL_VARCHAR, nullable: false, name: "foo" }, 
+// ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: "bar" }, 
+// ColumnType { datum_type: Bigint, odbc_type: SQL_EXT_BIGINT, nullable: true, name: "baz" }])
 
 // Execute prepared statement without binding parameters
 let result_set = db
     .execute::<ValueRow>(prepared_statement)
     .expect("failed to run query");
 
-// Note that in this example `prepared_statement` will be dropped with the `result_set` iterator and cannot be reused
+// Note that in this example `prepared_statement` will be dropped with the `result_set` 
+// iterator and cannot be reused
 for row in result_set {
     println!("{:?}", row.expect("failed to fetch row"))
 }
@@ -143,23 +156,27 @@ Using thread local connection
 use odbc_iter::{Odbc, ValueRow};
 
 // Connect to database using connection string
-let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
 
 // `connection_with` can be used to create one connection per thread
 let result = odbc_iter::thread_local::connection_with(&connection_string, |mut connection| {
-    // Provided object contains result of the connection operation; in case of error calling
-    // `connection_with` again will result in new connection attempt
+    // Provided object contains result of the connection operation
+    // in case of error calling `connection_with` again will result 
+    // in new connection attempt
     let mut connection = connection.expect("failed to connect");
 
     // Handle statically guards access to connection and provides query functionality
     let mut db = connection.handle();
 
     // Get single row single column value
-    let result = db.query::<String>("SELECT 'hello world'").expect("failed to run query").single().expect("failed to fetch row");
+    let result = db.query::<String>("SELECT 'hello world'")
+        .expect("failed to run query").single().expect("failed to fetch row");
 
-    // Return connection back to thread local so it can be reused later on along with the result of
-    // the query that will be returned by the `connection_with` call
-    // Returning `None` connection is useful to force new connection attempt on the next call
+    // Return connection back to thread local so it can be reused later on along 
+    // with the result of the query that will be returned by the `connection_with` call
+    // Returning `None` connection is useful to force new connection attempt on the 
+    // next call
     (Some(connection), result)
 });
 
@@ -178,14 +195,17 @@ use odbc_iter::{Odbc, ValueRow};
 use chrono::NaiveDateTime;
 
 // Connect to database using connection string
-let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
-let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+let mut connection = Odbc::connect(&connection_string)
+    .expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
 
 // Get `chrono::NaiveDateTime` value
-println!("{}", db.query::<NaiveDateTime>("SELECT CAST('2019-05-03 13:21:33.749' AS DATETIME2)").expect("failed to run query").single().expect("failed to fetch row"));
+println!("{}", db.query::<NaiveDateTime>("SELECT CAST('2019-05-03 13:21:33.749' AS DATETIME2)")
+    .expect("failed to run query").single().expect("failed to fetch row"));
 // Prints:
 // 2019-05-03 13:21:33.749
 # }
@@ -201,14 +221,17 @@ Query JSON column from MonetDB (with "serde_json" feature)
 use odbc_iter::{Odbc, Value};
 
 // Connect to database using connection string
-let connection_string = std::env::var("MONETDB_ODBC_CONNECTION").expect("MONETDB_ODBC_CONNECTION environment not set");
-let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+let connection_string = std::env::var("MONETDB_ODBC_CONNECTION")
+    .expect("MONETDB_ODBC_CONNECTION environment not set");
+let mut connection = Odbc::connect(&connection_string)
+    .expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
 
 // Get `Value::Json` variant containing `serde_json::Value` object
-println!("{}", db.query::<Value>(r#"SELECT CAST('{ "foo": 42 }' AS JSON)"#).expect("failed to run query").single().expect("failed to fetch row"));
+println!("{}", db.query::<Value>(r#"SELECT CAST('{ "foo": 42 }' AS JSON)"#)
+    .expect("failed to run query").single().expect("failed to fetch row"));
 // Prints:
 // {"foo":42}
 # }
@@ -224,14 +247,17 @@ Serializing `Value` and `ValueRow` using `serde` to JSON string (with "serde" fe
 use odbc_iter::{Odbc, ValueRow};
 
 // Connect to database using connection string
-let connection_string = std::env::var("DB_CONNECTION_STRING").expect("DB_CONNECTION_STRING environment not set");
-let mut connection = Odbc::connect(&connection_string).expect("failed to connect to database");
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+let mut connection = Odbc::connect(&connection_string)
+    .expect("failed to connect to database");
 
 // Handle statically guards access to connection and provides query functionality
 let mut db = connection.handle();
 
 // Get `ValueRow` (or just single `Value`) that implements `serde::Serialize` trait
-let row = db.query::<ValueRow>("SELECT 'hello world', CAST(42 AS INTEGER), CAST(10000000 AS BIGINT)").expect("failed to run query").single().expect("failed to fetch row");
+let row = db.query::<ValueRow>("SELECT 'hello world', CAST(42 AS INTEGER), CAST(10000000 AS BIGINT)")
+    .expect("failed to run query").single().expect("failed to fetch row");
 
 println!("{}", serde_json::to_string(&row).expect("failed to serialize"));
 // Prints:
