@@ -8,11 +8,11 @@ With this library you can:
 * automatically convert rows into:
     * tuples of Rust standard types,
     * custom type implementing a trait,
-    * vector of dynamicaly typed values,
+    * vector of dynamically typed values,
 * create thread local connections for multithreaded applications.
 
 Things still missing:
-* support for `DECIMAL` types - currently `DECIMAL` columns need to ba cast to `DOUBLE` on the query (PR welcome),
+* support for `DECIMAL` types - currently `DECIMAL` columns need to be cast to `DOUBLE` on the query (PR welcome),
 * rest of this list - please open issue in `GitHub` issue tracker for missing functionality, bugs, etc..
 
 Example usage
