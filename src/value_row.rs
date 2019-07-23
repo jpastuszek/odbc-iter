@@ -37,7 +37,7 @@ impl TryFromRow for ValueRow {
 /// This trait can be implemented for custom objects. This will enable them to be queried directly from database as `Item` of `ResultSet` iterator.
 pub trait TryFromValueRow: Sized {
     type Error: Error + 'static;
-    /// Given `ColumnType` convert from `ValueRow` to other type of value representing table row.
+    /// Convert from `ValueRow` to other type of value representing table row.
     fn try_from_value_row(values: ValueRow) -> Result<Self, Self::Error>;
 }
 
