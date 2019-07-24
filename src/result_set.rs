@@ -681,4 +681,38 @@ mod tests {
 
         assert!(value.is_none());
     }
+
+    #[test]
+    #[cfg(feature = "test-monetdb")]
+    #[cfg(feature = "serde_json")]
+    fn test_single_json_as_string() {
+        let mut db = crate::tests::connect_monetdb();
+
+        let value: String = db
+            .handle()
+            .query(r#"SELECT CAST('{ "foo": 42 }' AS JSON)"#)
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value, r#"{ "foo": 42 }"#);
+
+        let value: Option<String> = db
+            .handle()
+            .query(r#"SELECT CAST('{ "foo": 42 }' AS JSON)"#)
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert_eq!(&value.unwrap(), r#"{ "foo": 42 }"#);
+
+        let value: Option<String> = db
+            .handle()
+            .query("SELECT CAST(NULL AS JSON)")
+            .expect("failed to run query")
+            .single()
+            .expect("fetch data");
+
+        assert!(value.is_none());
+    }
 }

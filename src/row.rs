@@ -297,7 +297,8 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
         use SqlDataType::*;
         Ok(match self.column_type.odbc_type {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => self.into::<String>()?,
-            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR => {
+            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR |
+            SQL_UNKNOWN_TYPE => {
                 if self.utf_16_strings {
                     //TODO: map + transpose
                     if let Some(bytes) = self.into::<&[u16]>()? {
