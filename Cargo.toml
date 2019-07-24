@@ -1,6 +1,6 @@
 [package]
 name = "odbc-iter"
-version = "0.1.1"
+version = "0.1.2-alpha.0"
 authors = ["Jakub Pastuszek <jpastuszek@protonmail.com>"]
 description = "High level database access library based on 'odbc' crate that uses native ODBC drivers to access variety of databases"
 readme = "README.md"
