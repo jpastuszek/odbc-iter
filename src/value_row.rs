@@ -1,4 +1,4 @@
-use crate::row::{Row, TryFromColumn, TryFromRow, RowConvertError};
+use crate::row::{Row, TryFromColumn, EmptyConfiguration, TryFromRow, RowConvertError};
 use crate::value::{TryFromValue, Value};
 use std::convert::Infallible;
 use std::error::Error;
@@ -9,10 +9,10 @@ use std::fmt;
 /// This objects are constructed from row data returned by ODBC library and can be further converted to types implementing `TryFromValueRow`/`TryFromValue` traits.
 pub type ValueRow = Vec<Option<Value>>;
 
-impl TryFromRow for ValueRow {
+impl TryFromRow<EmptyConfiguration> for ValueRow {
     type Error = RowConvertError;
 
-    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, EmptyConfiguration>) -> Result<Self, Self::Error> {
         let mut value_row = Vec::with_capacity(row.columns() as usize);
 
         loop {

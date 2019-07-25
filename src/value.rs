@@ -1,4 +1,4 @@
-use crate::row::{DatumType, Column, TryFromColumn, ColumnConvertError};
+use crate::row::{Configuration, DatumType, Column, TryFromColumn, ColumnConvertError};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
@@ -370,10 +370,10 @@ impl From<serde_json::Value> for Value {
     }
 }
 
-impl TryFromColumn for Option<Value> {
+impl<C: Configuration> TryFromColumn<C> for Option<Value> {
     type Error = ColumnConvertError;
 
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
         Ok(match column.column_type().datum_type {
             DatumType::Bit => column.into_bool()?.map(Value::from),
             DatumType::Tinyint => column.into_i8()?.map(Value::from),
@@ -392,10 +392,10 @@ impl TryFromColumn for Option<Value> {
     }
 }
 
-impl TryFromColumn for Value {
+impl<C: Configuration> TryFromColumn<C> for Value {
     type Error = ColumnConvertError;
 
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
         let value: Option<Value> = TryFromColumn::try_from_column(column)?;
         value.ok_or_else(|| ColumnConvertError::UnexpectedNullValue("Value"))
     }

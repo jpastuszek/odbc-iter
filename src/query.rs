@@ -10,7 +10,7 @@ use std::fmt;
 use std::fmt::Debug;
 
 use crate::result_set::{DataAccessError, ResultSet, ResultSetError};
-use crate::row::{ColumnType, UnsupportedSqlDataType, TryFromRow};
+use crate::row::{Settings, Configuration, EmptyConfiguration, ColumnType, UnsupportedSqlDataType, TryFromRow};
 use crate::{Odbc, OdbcError};
 
 /// Errors related to execution of queries.
@@ -155,21 +155,6 @@ impl<'h, 't, S> From<Statement<'h, 'h, S, NoResult>> for Binder<'h, 'h, S> {
     }
 }
 
-/// Runtime configuration.
-#[derive(Debug)]
-pub struct Options {
-    /// When `true` the `ResultSet` iterator will try to fetch strings as UTF-16 (wide) strings before converting them to Rust's UTF-8 `String`.
-    pub utf_16_strings: bool,
-}
-
-impl Default for Options {
-    fn default() -> Options {
-        Options {
-            utf_16_strings: false,
-        }
-    }
-}
-
 /// ODBC prepared statement.
 pub struct PreparedStatement<'h>(Statement<'h, 'h, odbc::Prepared, odbc::NoResult>);
 
@@ -219,7 +204,7 @@ impl<'h> PreparedStatement<'h> {
 /// Database connection.
 pub struct Connection {
     connection: OdbcConnection<'static>,
-    utf_16_strings: bool,
+    settings: Settings,
 }
 
 /// Assuming drivers support sending Connection between threads.
@@ -228,20 +213,20 @@ unsafe impl Send for Connection {}
 impl fmt::Debug for Connection {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Connection")
-            .field("utf_16_strings", &self.utf_16_strings)
+            .field("settings", &self.settings)
             .finish()
     }
 }
 
 impl Connection {
     pub fn new(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
-        Self::with_options(odbc, connection_string, Options::default())
+        Self::with_settings(odbc, connection_string, Default::default())
     }
 
-    pub fn with_options(
+    pub fn with_settings(
         odbc: &'static Odbc,
         connection_string: &str,
-        options: Options,
+        settings: Settings,
     ) -> Result<Connection, OdbcError> {
         odbc.environment
             .connect_with_connection_string(connection_string)
@@ -249,7 +234,7 @@ impl Connection {
             .map_err(Into::into)
             .map(|connection| Connection {
                 connection,
-                utf_16_strings: options.utf_16_strings,
+                settings,
             })
     }
 }
@@ -257,19 +242,28 @@ impl Connection {
 /// Statically ensures that `Connection` can only be used after `ResultSet` was consumed to avoid runtime
 /// errors.
 ///
-/// Operations on `Connection` are only alowed after `ResultSet` was dropped.
+/// Operations on `Connection` are only allowed after `ResultSet` was dropped.
 /// Allocated `PreparedStatement` objects reference `Connection` directly so `Handle` can be still used to
 /// query or allocate more `PreparedStatement` objects.
 #[derive(Debug)]
-pub struct Handle<'c>(&'c Connection);
+pub struct Handle<'c, C: Configuration = EmptyConfiguration>(&'c Connection, C);
+//TODO: convert to struct
 
 impl<'c: 'c> Connection {
-    pub fn handle(&'c mut self) -> Handle<'c> {
-        Handle(self)
+    pub fn handle(&'c mut self) -> Handle<'c, EmptyConfiguration> {
+        Handle(self, EmptyConfiguration)
+    }
+
+    pub fn handle_with_configuration<C: Configuration>(&'c mut self, configuration: C) -> Handle<'c, C> {
+        Handle(self, configuration)
     }
 }
 
-impl<'h, 'c: 'h> Handle<'c> {
+impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
+    pub fn with_configuration<CNew: Configuration>(&mut self, configuration: CNew) -> Handle<'c, CNew> {
+        Handle(self.0, configuration)
+    }
+
     fn statement(&'h self) -> Result<Statement<'c, 'c, Allocated, NoResult>, OdbcError> {
         Statement::with_parent(&self.0.connection)
             .wrap_error_while("pairing statement with connection")
@@ -284,9 +278,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         schema: Option<&'i str>,
         table: Option<&'i str>,
         table_type: Option<&'i str>,
-    ) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
+    ) -> Result<ResultSet<'h, 'c, V, Executed, C>, QueryError>
     where
-        V: TryFromRow,
+        V: TryFromRow<C>,
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
@@ -304,7 +298,8 @@ impl<'h, 'c: 'h> Handle<'c> {
         Ok(ResultSet::from_result(
             self,
             result_set,
-            self.0.utf_16_strings,
+            &self.0.settings,
+            self.1.clone(),
         )?)
     }
 
@@ -322,9 +317,9 @@ impl<'h, 'c: 'h> Handle<'c> {
     }
 
     /// Execute one-off query.
-    pub fn query<V>(&'h mut self, query: &str) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
+    pub fn query<V>(&'h mut self, query: &str) -> Result<ResultSet<'h, 'c, V, Executed, C>, QueryError>
     where
-        V: TryFromRow,
+        V: TryFromRow<C>,
     {
         self.query_with_parameters(query, Ok)
     }
@@ -335,9 +330,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         &'h mut self,
         query: &str,
         bind: F,
-    ) -> Result<ResultSet<'h, 'c, V, Executed>, QueryError>
+    ) -> Result<ResultSet<'h, 'c, V, Executed, C>, QueryError>
     where
-        V: TryFromRow,
+        V: TryFromRow<C>,
         F: FnOnce(Binder<'c, 'c, Allocated>) -> Result<Binder<'c, 't, Allocated>, BindError>,
     {
         debug!("Direct ODBC query: {}", &query);
@@ -349,7 +344,8 @@ impl<'h, 'c: 'h> Handle<'c> {
             statement
                 .exec_direct(query)
                 .wrap_error_while("executing direct statement")?,
-            self.0.utf_16_strings,
+            &self.0.settings,
+            self.1.clone(),
         )?)
     }
 
@@ -357,9 +353,9 @@ impl<'h, 'c: 'h> Handle<'c> {
     pub fn execute<V>(
         &'h mut self,
         statement: PreparedStatement<'c>,
-    ) -> Result<ResultSet<'h, 'c, V, Prepared>, QueryError>
+    ) -> Result<ResultSet<'h, 'c, V, Prepared, C>, QueryError>
     where
-        V: TryFromRow,
+        V: TryFromRow<C>,
     {
         self.execute_with_parameters(statement, Ok)
     }
@@ -369,9 +365,9 @@ impl<'h, 'c: 'h> Handle<'c> {
         &'h mut self,
         statement: PreparedStatement<'c>,
         bind: F,
-    ) -> Result<ResultSet<'h, 'c, V, Prepared>, QueryError>
+    ) -> Result<ResultSet<'h, 'c, V, Prepared, C>, QueryError>
     where
-        V: TryFromRow,
+        V: TryFromRow<C>,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();
@@ -381,25 +377,26 @@ impl<'h, 'c: 'h> Handle<'c> {
             statement
                 .execute()
                 .wrap_error_while("executing statement")?,
-            self.0.utf_16_strings,
+            &self.0.settings,
+            self.1.clone(),
         )?)
     }
 
     /// Calls "START TRANSACTION"
     pub fn start_transaction(&mut self) -> Result<(), QueryError> {
-        self.query::<()>("START TRANSACTION")?.no_result().unwrap();
+        self.with_configuration(EmptyConfiguration).query::<()>("START TRANSACTION")?.no_result().unwrap();
         Ok(())
     }
 
     /// Calls "COMMIT"
     pub fn commit(&mut self) -> Result<(), QueryError> {
-        self.query::<()>("COMMIT")?.no_result().unwrap();
+        self.with_configuration(EmptyConfiguration).query::<()>("COMMIT")?.no_result().unwrap();
         Ok(())
     }
 
     /// Calls "ROLLBACK"
     pub fn rollback(&mut self) -> Result<(), QueryError> {
-        self.query::<()>("ROLLBACK")?.no_result().unwrap();
+        self.with_configuration(EmptyConfiguration).query::<()>("ROLLBACK")?.no_result().unwrap();
         Ok(())
     }
 
@@ -407,7 +404,7 @@ impl<'h, 'c: 'h> Handle<'c> {
     /// If function returns Err the transaction will be rolled back otherwise committed.
     pub fn in_transaction<O, E>(
         &mut self,
-        f: impl FnOnce(&mut Handle<'c>) -> Result<O, E>,
+        f: impl FnOnce(&mut Handle<'c, C>) -> Result<O, E>,
     ) -> Result<Result<O, E>, QueryError> {
         self.start_transaction()?;
         Ok(match f(self) {
@@ -426,7 +423,7 @@ impl<'h, 'c: 'h> Handle<'c> {
     /// This is useful when you need to do changes with auto-commit (for example change schema) while in open transaction already.
     pub fn outside_of_transaction<O>(
         &mut self,
-        f: impl FnOnce(&mut Handle<'c>) -> O,
+        f: impl FnOnce(&mut Handle<'c, C>) -> O,
     ) -> Result<O, QueryError> {
         self.commit()?;
         let ret = f(self);

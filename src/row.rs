@@ -12,6 +12,27 @@ use std::fmt;
 use std::string::FromUtf16Error;
 use std::convert::TryInto;
 
+/// Data access configuration that can be used to configure data retrieval and conversion configured per `ResultSet` for given `Item` type.
+pub trait Configuration: Default + Clone + fmt::Debug {} 
+
+#[derive(Debug, Default, Clone)]
+pub struct EmptyConfiguration;
+impl Configuration for EmptyConfiguration {}
+
+/// Runtime settings configured per connection.
+#[derive(Debug, Default)]
+pub struct Settings {
+    /// When `true` the `ResultSet` iterator will try to fetch strings as UTF-16 (wide) strings before converting them to Rust's UTF-8 `String`.
+    pub utf_16_strings: bool,
+}
+
+//TODO: better name!
+#[derive(Debug)]
+pub struct Options<'c, C = EmptyConfiguration> {
+    pub settings: &'c Settings,
+    pub configuration: C,
+}
+
 /// This error can be returned if database provided column type does not match type requested by
 /// client
 #[derive(Debug)]
@@ -205,14 +226,14 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 }
 
 /// Represents SQL table column which can be converted to Rust native type.
-pub struct Column<'r, 's, 'c, S> {
+pub struct Column<'r, 's, 'c, S, C: Configuration> {
     column_type: &'r ColumnType,
+    options: &'r Options<'c, C>,
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
-    utf_16_strings: bool,
 }
 
-impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
+impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
     fn into<T: OdbcType<'r>>(self) -> Result<Option<T>, DatumAccessError> {
         self.cursor
             .get_data::<T>(self.index + 1)
@@ -221,6 +242,10 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 
     pub fn column_type(&self) -> &ColumnType {
         self.column_type
+    }
+
+    pub fn options(&self) -> &Options<'c, C> {
+        self.options
     }
 
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
@@ -315,7 +340,7 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => self.into::<String>()?,
             SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR |
             SQL_UNKNOWN_TYPE => {
-                if self.utf_16_strings {
+                if self.options.settings.utf_16_strings {
                     //TODO: map + transpose
                     if let Some(bytes) = self.into::<&[u16]>()? {
                         Some(String::from_utf16(bytes)
@@ -412,38 +437,39 @@ impl<'r, 's, 'c, S> Column<'r, 's, 'c, S> {
 }
 
 /// Represents SQL table row of Column objects.
-pub struct Row<'r, 's, 'c, S> {
+//TODO: Debug
+pub struct Row<'r, 's, 'c, S, C: Configuration> {
     schema: &'r [ColumnType],
+    options: &'r Options<'c, C>,
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
     index: u16,
     columns: u16,
-    utf_16_strings: bool,
 }
 
-impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
+impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
     pub fn new(
         cursor: odbc::Cursor<'s, 'c, 'c, S>,
         schema: &'r [ColumnType],
-        utf_16_strings: bool,
-    ) -> Row<'r, 's, 'c, S> {
+        options: &'r Options<'c, C>,
+    ) -> Row<'r, 's, 'c, S, C> {
         Row {
             schema,
+            options,
             cursor,
             index: 0,
             columns: schema.len() as u16,
-            utf_16_strings,
         }
     }
 
-    pub fn shift_column<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S>> {
+    pub fn shift_column<'i>(&'i mut self) -> Option<Column<'i, 's, 'c, S, C>> {
         self.schema
             .get(self.index as usize)
             .map(move |column_type| {
                 let column = Column {
                     column_type,
+                    options: &self.options,
                     cursor: &mut self.cursor,
                     index: self.index,
-                    utf_16_strings: self.utf_16_strings,
                 };
 
                 self.index += 1;
@@ -460,10 +486,10 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
 /// Column values can be converted to types implementing this trait.
 ///
 /// This trait is implemented for primitive Rust types, `String` and `chrono` date and time types.
-pub trait TryFromColumn: Sized {
+pub trait TryFromColumn<C: Configuration>: Sized {
     type Error: Error + 'static;
     /// Create `Self` from row column.
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error>;
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error>;
 }
 
 /// This traits allow for conversion of `Row` type representing ODBC cursor used internally by `ResultSet` iterator to any other type returned as `Item` that implements it.
@@ -472,10 +498,10 @@ pub trait TryFromColumn: Sized {
 /// Also this trait implementation allows to convert single column rows to types implementing `TryFromColumn`.
 ///
 /// This trait can be implemented for custom objects. This will enable them to be queried directly from database as `Item` of `ResultSet` iterator.
-pub trait TryFromRow: Sized {
+pub trait TryFromRow<C: Configuration>: Sized {
     type Error: Error + 'static;
     /// Given `ColumnType` convert from `Row` to other type of value representing table row.
-    fn try_from_row<'r, 's, 'c, S>(row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error>;
+    fn try_from_row<'r, 's, 'c, S>(row: Row<'r, 's, 'c, S, C>) -> Result<Self, Self::Error>;
 }
 
 /// Error type that represents different problems when converting column values to specific types.
@@ -522,9 +548,9 @@ impl Error for ColumnConvertError {
 
 macro_rules! try_from_row_not_null {
     ($t:ty) => {
-        impl TryFromColumn for $t {
+        impl<C: Configuration> TryFromColumn<C> for $t {
             type Error = ColumnConvertError;
-            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
                 let value: Option<$t> = TryFromColumn::try_from_column(column)?;
                 value.ok_or_else(|| ColumnConvertError::UnexpectedNullValue(stringify!($t)))
             }
@@ -534,9 +560,9 @@ macro_rules! try_from_row_not_null {
 
 macro_rules! try_from_row {
     ($t:ty, $f:ident) => {
-        impl TryFromColumn for Option<$t> {
+        impl<C: Configuration> TryFromColumn<C> for Option<$t> {
             type Error = ColumnConvertError;
-            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
                 column.$f().map_err(Into::into)
             }
         }
@@ -547,9 +573,9 @@ macro_rules! try_from_row {
 
 macro_rules! try_from_row_unsigned {
     ($it:ty, $t:ty) => {
-        impl TryFromColumn for Option<$t> {
+        impl<C: Configuration> TryFromColumn<C> for Option<$t> {
             type Error = ColumnConvertError;
-            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
                 let value: Option<$it> = TryFromColumn::try_from_column(column)?;
                 value.map(|value|
                     value
@@ -587,9 +613,9 @@ try_from_row![serde_json::Value, into_json];
 use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
 
 #[cfg(feature = "chrono")]
-impl TryFromColumn for Option<NaiveDateTime> {
+impl<C: Configuration> TryFromColumn<C> for Option<NaiveDateTime> {
     type Error = ColumnConvertError;
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
         let value: Option<SqlTimestamp> = TryFromColumn::try_from_column(column)?;
 
         Ok(value.map(|value| {
@@ -612,9 +638,9 @@ impl TryFromColumn for Option<NaiveDateTime> {
 try_from_row_not_null!(NaiveDateTime);
 
 #[cfg(feature = "chrono")]
-impl TryFromColumn for Option<NaiveDate> {
+impl<C: Configuration> TryFromColumn<C> for Option<NaiveDate> {
     type Error = ColumnConvertError;
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
         let value: Option<SqlDate> = TryFromColumn::try_from_column(column)?;
 
         Ok(value.map(|value| {
@@ -631,9 +657,9 @@ impl TryFromColumn for Option<NaiveDate> {
 try_from_row_not_null!(NaiveDate);
 
 #[cfg(feature = "chrono")]
-impl TryFromColumn for Option<NaiveTime> {
+impl<C: Configuration> TryFromColumn<C> for Option<NaiveTime> {
     type Error = ColumnConvertError;
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
         let value: Option<SqlSsTime2> = TryFromColumn::try_from_column(column)?;
 
         Ok(value.map(|value| {
@@ -696,20 +722,20 @@ impl Error for RowConvertError {
 }
 
 /// Unit can be used to signal that no rows of data should be produced.
-impl TryFromRow for () {
+impl TryFromRow<EmptyConfiguration> for () {
     type Error = RowConvertError;
-    fn try_from_row<'r, 's, 'c, S>(_row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(_row: Row<'r, 's, 'c, S, EmptyConfiguration>) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
 
 /// Convert row with single column to any type implementing `TryFromColumn`.
-impl<T> TryFromRow for T
+impl<T> TryFromRow<EmptyConfiguration> for T
 where
-    T: TryFromColumn,
+    T: TryFromColumn<EmptyConfiguration>,
 {
     type Error = RowConvertError;
-    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, EmptyConfiguration>) -> Result<Self, Self::Error> {
         if row.columns() != 1 {
             return Err(RowConvertError::UnexpectedNumberOfColumns {
                 expected: 1,
@@ -768,9 +794,9 @@ macro_rules! try_from_tuple {
         }
     )+) => {
         $(
-            impl<$($T: TryFromColumn),+> TryFromRow for ($($T,)+) {
+            impl<C: Configuration, $($T: TryFromColumn<C>),+> TryFromRow<C> for ($($T,)+) {
                 type Error = RowConvertTupleError;
-                fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S>) -> Result<($($T,)+), Self::Error> {
+                fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, C>) -> Result<($($T,)+), Self::Error> {
                     if row.columns() != count!($($T)+) {
                         return Err(RowConvertTupleError::UnexpectedNumberOfColumns { expected: row.columns(), tuple: stringify![($($T,)+)] })
                     }
@@ -783,105 +809,105 @@ macro_rules! try_from_tuple {
 
 try_from_tuple! {
     Tuple1 {
-        (0) -> A
+        (0) -> TA
     }
     Tuple2 {
-        (0) -> A
-        (1) -> B
+        (0) -> TA
+        (1) -> TB
     }
     Tuple3 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
     }
     Tuple4 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
     }
     Tuple5 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
     }
     Tuple6 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
     }
     Tuple7 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
-        (6) -> G
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
     }
     Tuple8 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
-        (6) -> G
-        (7) -> H
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
     }
     Tuple9 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
-        (6) -> G
-        (7) -> H
-        (8) -> I
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
     }
     Tuple10 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
-        (6) -> G
-        (7) -> H
-        (8) -> I
-        (9) -> J
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
     }
     Tuple11 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
-        (6) -> G
-        (7) -> H
-        (8) -> I
-        (9) -> J
-        (10) -> K
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
     }
     Tuple12 {
-        (0) -> A
-        (1) -> B
-        (2) -> C
-        (3) -> D
-        (4) -> E
-        (5) -> F
-        (6) -> G
-        (7) -> H
-        (8) -> I
-        (9) -> J
-        (10) -> K
-        (11) -> L
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
     }
 }

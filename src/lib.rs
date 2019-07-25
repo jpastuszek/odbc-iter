@@ -397,11 +397,11 @@ impl Odbc {
     }
 
     /// Connect to database using connection string with configuration options.
-    pub fn connect_with_options(
+    pub fn connect_with_settings(
         connection_string: &str,
-        options: Options,
+        settings: Settings,
     ) -> Result<Connection, OdbcError> {
-        Connection::with_options(&ODBC, connection_string, options)
+        Connection::with_settings(&ODBC, connection_string, settings)
     }
 }
 
@@ -455,8 +455,8 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-sql-server")]
-    pub fn connect_sql_server_with_options(options: Options) -> Connection {
-        Odbc::connect_with_options(sql_server_connection_string().as_str(), options)
+    pub fn connect_sql_server_with_settings(settings: Settings) -> Connection {
+        Odbc::connect_with_settings(sql_server_connection_string().as_str(), settings)
             .expect("connect to SQL ServerMonetDB")
     }
 
@@ -471,8 +471,8 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-hive")]
-    pub fn connect_hive_with_options(options: Options) -> Connection {
-        Odbc::connect_with_options(hive_connection_string().as_str(), options)
+    pub fn connect_hive_with_settings(settings: Settings) -> Connection {
+        Odbc::connect_with_settings(hive_connection_string().as_str(), settings)
             .expect("connect to Hive")
     }
 
@@ -487,8 +487,8 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-monetdb")]
-    pub fn connect_monetdb_with_options(options: Options) -> Connection {
-        Odbc::connect_with_options(monetdb_connection_string().as_str(), options)
+    pub fn connect_monetdb_with_settings(settings: Settings) -> Connection {
+        Odbc::connect_with_settings(monetdb_connection_string().as_str(), settings)
             .expect("connect to MonetDB")
     }
 
@@ -934,7 +934,7 @@ pub mod tests {
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_long_string_fetch_utf_16_bind() {
-        let mut connection = connect_sql_server_with_options(Options {
+        let mut connection = connect_sql_server_with_settings(Settings {
             utf_16_strings: true,
         });
 
@@ -958,7 +958,7 @@ pub mod tests {
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_long_string_fetch_utf_16() {
-        let mut hive = connect_hive_with_options(Options {
+        let mut hive = connect_hive_with_settings(Settings {
             utf_16_strings: true,
         });
 
@@ -975,7 +975,7 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_long_string_fetch_utf_16() {
-        let mut monetdb = connect_monetdb_with_options(Options {
+        let mut monetdb = connect_monetdb_with_settings(Settings {
             utf_16_strings: true,
         });
 
@@ -1138,13 +1138,13 @@ SELECT *;
     #[cfg(feature = "test-sql-server")]
     #[test]
     fn test_sql_server_debug() {
-        let mut connection = connect_sql_server_with_options(Options {
+        let mut connection = connect_sql_server_with_settings(Settings {
             utf_16_strings: true,
         });
 
         assert_eq!(
             format!("{:?}", connection),
-            "Connection { utf_16_strings: true }"
+            "Connection { settings: Settings { utf_16_strings: true } }"
         );
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
@@ -1152,7 +1152,7 @@ SELECT *;
         let mut handle = connection.handle();
         assert_eq!(
             format!("{:?}", handle),
-            "Handle(Connection { utf_16_strings: true })"
+            "Handle(Connection { settings: Settings { utf_16_strings: true } })"
         );
 
         let statement = handle
@@ -1169,6 +1169,6 @@ SELECT *;
             })
             .expect("failed to run query");
 
-        assert_eq!(format!("{:?}", result_set), "ResultSet { schema: [ColumnType { datum_type: String, odbc_type: SQL_EXT_WVARCHAR, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, odbc_type: SQL_EXT_BIT, nullable: true, name: \"baz\" }], columns: 3, utf_16_strings: true }");
+        assert_eq!(format!("{:?}", result_set), "ResultSet { schema: [ColumnType { datum_type: String, odbc_type: SQL_EXT_WVARCHAR, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, odbc_type: SQL_EXT_BIT, nullable: true, name: \"baz\" }], columns: 3, options: Options { settings: Settings { utf_16_strings: true }, configuration: EmptyConfiguration } }");
     }
 }
