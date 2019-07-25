@@ -112,18 +112,30 @@ pub struct ColumnType {
 /// Types of values that column can be converted to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DatumType {
+    /// Use `Column::into_bool()` to get column value.
     Bit,
+    /// Use `Column::into_i8()` to get column value.
     Tinyint,
+    /// Use `Column::into_i16()` to get column value.
     Smallint,
+    /// Use `Column::into_i32()` to get column value.
     Integer,
+    /// Use `Column::into_i64()` to get column value.
     Bigint,
+    /// Use `Column::into_f32()` to get column value.
     Float,
+    /// Use `Column::into_f64()` to get column value.
     Double,
+    /// Use `Column::into_string()` to get column value.
     String,
+    /// Use `Column::into_timestamp()` to get column value.
     Timestamp,
+    /// Use `Column::into_date()` to get column value.
     Date,
+    /// Use `Column::into_time()` to get column value.
     Time,
     #[cfg(feature = "serde_json")]
+    /// Use `Column::into_json()` to parse as `serde_json::Value` or `Column::into_string()` to get it as `String`.
     Json,
 }
 
@@ -446,6 +458,7 @@ impl<'r, 's, 'c, S> Row<'r, 's, 'c, S> {
 /// This trait is implemented for primitive Rust types, `String` and `chrono` date and time types.
 pub trait TryFromColumn: Sized {
     type Error: Error + 'static;
+    /// Create `Self` from row column.
     fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S>) -> Result<Self, Self::Error>;
 }
 
