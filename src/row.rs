@@ -103,9 +103,13 @@ impl From<serde_json::Error> for DatumAccessError {
 /// Description of column type, name and nullability properties used to represent row schema.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnType {
+    /// Supported type of datum that this column holds. See `DatumType` documentation of usage of corresponding `Column::into_*()` functions.
     pub datum_type: DatumType,
+    /// ODBC SQL Data Type as returned by the driver.
     pub odbc_type: SqlDataType,
+    /// `true` if column can contain `NULL` value. If `false` the `Column::into_*()` functions should always return `Some` value.
     pub nullable: bool,
+    /// Name of the column as provided by the ODBC driver.
     pub name: String,
 }
 
