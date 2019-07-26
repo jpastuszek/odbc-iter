@@ -225,7 +225,7 @@ where
         self.schema.as_slice()
     }
 
-    /// Get associated configuration object.
+    /// Get associated data access configuration object.
     pub fn configuration(&self) -> &C {
         &self.configuration
     }

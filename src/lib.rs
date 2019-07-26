@@ -396,12 +396,27 @@ impl Odbc {
         Connection::new(&ODBC, connection_string)
     }
 
+    /// Connect to database using connection string with default configuration options.
+    /// This implementation will synchronize underlaying connection call which is useful with not thread safe drivers.
+    pub fn connect_sync(connection_string: &str) -> Result<Connection, OdbcError> {
+        Connection::new_sync(&ODBC, connection_string)
+    }
+
     /// Connect to database using connection string with configuration options.
     pub fn connect_with_settings(
         connection_string: &str,
         settings: Settings,
     ) -> Result<Connection, OdbcError> {
         Connection::with_settings(&ODBC, connection_string, settings)
+    }
+
+    /// Connect to database using connection string with configuration options.
+    /// This implementation will synchronize underlaying connection call which is useful with not thread safe drivers.
+    pub fn connect_with_settings_sync(
+        connection_string: &str,
+        settings: Settings,
+    ) -> Result<Connection, OdbcError> {
+        Connection::with_settings_sync(&ODBC, connection_string, settings)
     }
 }
 
@@ -451,12 +466,12 @@ pub mod tests {
 
     #[cfg(feature = "test-sql-server")]
     pub fn connect_sql_server() -> Connection {
-        Odbc::connect(sql_server_connection_string().as_str()).expect("connect to SQL Server")
+        Odbc::connect_sync(sql_server_connection_string().as_str()).expect("connect to SQL Server")
     }
 
     #[cfg(feature = "test-sql-server")]
     pub fn connect_sql_server_with_settings(settings: Settings) -> Connection {
-        Odbc::connect_with_settings(sql_server_connection_string().as_str(), settings)
+        Odbc::connect_with_settings_sync(sql_server_connection_string().as_str(), settings)
             .expect("connect to SQL ServerMonetDB")
     }
 
