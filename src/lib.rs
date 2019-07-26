@@ -1152,7 +1152,7 @@ SELECT *;
         let mut handle = connection.handle();
         assert_eq!(
             format!("{:?}", handle),
-            "Handle(Connection { settings: Settings { utf_16_strings: true } })"
+            "Handle { connection: Connection { settings: Settings { utf_16_strings: true } }, configuration: DefaultConfiguration }"
         );
 
         let statement = handle
@@ -1169,6 +1169,6 @@ SELECT *;
             })
             .expect("failed to run query");
 
-        assert_eq!(format!("{:?}", result_set), "ResultSet { schema: [ColumnType { datum_type: String, odbc_type: SQL_EXT_WVARCHAR, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, odbc_type: SQL_EXT_BIT, nullable: true, name: \"baz\" }], columns: 3, options: Options { settings: Settings { utf_16_strings: true }, configuration: EmptyConfiguration } }");
+        assert_eq!(format!("{:?}", result_set), "ResultSet { schema: [ColumnType { datum_type: String, odbc_type: SQL_EXT_WVARCHAR, nullable: true, name: \"foo\" }, ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: \"bar\" }, ColumnType { datum_type: Bit, odbc_type: SQL_EXT_BIT, nullable: true, name: \"baz\" }], columns: 3, options: Options { settings: Settings { utf_16_strings: true }, configuration: DefaultConfiguration } }");
     }
 }

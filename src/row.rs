@@ -13,11 +13,13 @@ use std::string::FromUtf16Error;
 use std::convert::TryInto;
 
 /// Data access configuration that can be used to configure data retrieval and conversion configured per `ResultSet` for given `Item` type.
+/// Configuration can be attached to `Handle` and will be cloneed per query so it can store query related data.
 pub trait Configuration: Default + Clone + fmt::Debug {} 
 
+/// Default configuration that allows converting rows to types supported by this crate.
 #[derive(Debug, Default, Clone)]
-pub struct EmptyConfiguration;
-impl Configuration for EmptyConfiguration {}
+pub struct DefaultConfiguration;
+impl Configuration for DefaultConfiguration {}
 
 /// Runtime settings configured per connection.
 #[derive(Debug, Default)]
@@ -28,7 +30,7 @@ pub struct Settings {
 
 //TODO: better name!
 #[derive(Debug)]
-pub struct Options<'c, C = EmptyConfiguration> {
+pub struct Options<'c, C = DefaultConfiguration> {
     pub settings: &'c Settings,
     pub configuration: C,
 }
@@ -341,13 +343,9 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
             SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR |
             SQL_UNKNOWN_TYPE => {
                 if self.options.settings.utf_16_strings {
-                    //TODO: map + transpose
-                    if let Some(bytes) = self.into::<&[u16]>()? {
-                        Some(String::from_utf16(bytes)
-                            .wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)")?)
-                    } else {
-                        None
-                    }
+                    self.into::<&[u16]>()?
+                        .map(|bytes| String::from_utf16(bytes).wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)"))
+                        .transpose()?
                 } else {
                     self.into::<String>()?
                 }
@@ -722,20 +720,20 @@ impl Error for RowConvertError {
 }
 
 /// Unit can be used to signal that no rows of data should be produced.
-impl TryFromRow<EmptyConfiguration> for () {
+impl TryFromRow<DefaultConfiguration> for () {
     type Error = RowConvertError;
-    fn try_from_row<'r, 's, 'c, S>(_row: Row<'r, 's, 'c, S, EmptyConfiguration>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(_row: Row<'r, 's, 'c, S, DefaultConfiguration>) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
 
 /// Convert row with single column to any type implementing `TryFromColumn`.
-impl<T> TryFromRow<EmptyConfiguration> for T
+impl<T> TryFromRow<DefaultConfiguration> for T
 where
-    T: TryFromColumn<EmptyConfiguration>,
+    T: TryFromColumn<DefaultConfiguration>,
 {
     type Error = RowConvertError;
-    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, EmptyConfiguration>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, DefaultConfiguration>) -> Result<Self, Self::Error> {
         if row.columns() != 1 {
             return Err(RowConvertError::UnexpectedNumberOfColumns {
                 expected: 1,

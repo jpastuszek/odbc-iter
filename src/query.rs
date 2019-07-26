@@ -10,7 +10,7 @@ use std::fmt;
 use std::fmt::Debug;
 
 use crate::result_set::{DataAccessError, ResultSet, ResultSetError};
-use crate::row::{Settings, Configuration, EmptyConfiguration, ColumnType, UnsupportedSqlDataType, TryFromRow};
+use crate::row::{Settings, Configuration, DefaultConfiguration, ColumnType, UnsupportedSqlDataType, TryFromRow};
 use crate::{Odbc, OdbcError};
 
 /// Errors related to execution of queries.
@@ -246,26 +246,37 @@ impl Connection {
 /// Allocated `PreparedStatement` objects reference `Connection` directly so `Handle` can be still used to
 /// query or allocate more `PreparedStatement` objects.
 #[derive(Debug)]
-pub struct Handle<'c, C: Configuration = EmptyConfiguration>(&'c Connection, C);
-//TODO: convert to struct
+pub struct Handle<'c, C: Configuration = DefaultConfiguration> {
+    connection: &'c Connection, 
+    configuration: C,
+}
 
 impl<'c: 'c> Connection {
-    pub fn handle(&'c mut self) -> Handle<'c, EmptyConfiguration> {
-        Handle(self, EmptyConfiguration)
+    pub fn handle(&'c mut self) -> Handle<'c, DefaultConfiguration> {
+        Handle {
+            connection: self, 
+            configuration: DefaultConfiguration,
+        }
     }
 
     pub fn handle_with_configuration<C: Configuration>(&'c mut self, configuration: C) -> Handle<'c, C> {
-        Handle(self, configuration)
+        Handle {
+            connection: self, 
+            configuration,
+        }
     }
 }
 
 impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
     pub fn with_configuration<CNew: Configuration>(&mut self, configuration: CNew) -> Handle<'c, CNew> {
-        Handle(self.0, configuration)
+        Handle {
+            connection: self.connection, 
+            configuration,
+        }
     }
 
     fn statement(&'h self) -> Result<Statement<'c, 'c, Allocated, NoResult>, OdbcError> {
-        Statement::with_parent(&self.0.connection)
+        Statement::with_parent(&self.connection.connection)
             .wrap_error_while("pairing statement with connection")
             .map_err(Into::into)
     }
@@ -298,8 +309,8 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
         Ok(ResultSet::from_result(
             self,
             result_set,
-            &self.0.settings,
-            self.1.clone(),
+            &self.connection.settings,
+            self.configuration.clone(),
         )?)
     }
 
@@ -344,8 +355,8 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
             statement
                 .exec_direct(query)
                 .wrap_error_while("executing direct statement")?,
-            &self.0.settings,
-            self.1.clone(),
+            &self.connection.settings,
+            self.configuration.clone(),
         )?)
     }
 
@@ -377,26 +388,26 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
             statement
                 .execute()
                 .wrap_error_while("executing statement")?,
-            &self.0.settings,
-            self.1.clone(),
+            &self.connection.settings,
+            self.configuration.clone(),
         )?)
     }
 
     /// Calls "START TRANSACTION"
     pub fn start_transaction(&mut self) -> Result<(), QueryError> {
-        self.with_configuration(EmptyConfiguration).query::<()>("START TRANSACTION")?.no_result().unwrap();
+        self.with_configuration(DefaultConfiguration).query::<()>("START TRANSACTION")?.no_result().unwrap();
         Ok(())
     }
 
     /// Calls "COMMIT"
     pub fn commit(&mut self) -> Result<(), QueryError> {
-        self.with_configuration(EmptyConfiguration).query::<()>("COMMIT")?.no_result().unwrap();
+        self.with_configuration(DefaultConfiguration).query::<()>("COMMIT")?.no_result().unwrap();
         Ok(())
     }
 
     /// Calls "ROLLBACK"
     pub fn rollback(&mut self) -> Result<(), QueryError> {
-        self.with_configuration(EmptyConfiguration).query::<()>("ROLLBACK")?.no_result().unwrap();
+        self.with_configuration(DefaultConfiguration).query::<()>("ROLLBACK")?.no_result().unwrap();
         Ok(())
     }
 
