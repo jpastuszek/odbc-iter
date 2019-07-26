@@ -225,6 +225,11 @@ where
         self.schema.as_slice()
     }
 
+    /// Get associated configuration object.
+    pub fn configuration(&self) -> &C {
+        &self.configuration
+    }
+
     /// Get exactly one row from the result set.
     /// This function will fail if zero or more than one rows would be provided.
     pub fn single(mut self) -> Result<V, DataAccessError> {
