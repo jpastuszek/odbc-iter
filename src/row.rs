@@ -224,10 +224,10 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 pub struct Column<'r, 's, 'c, S, C: Configuration> {
     /// Type information about this column
     pub column_type: &'r ColumnType,
-    /// Data access settings
-    pub settings: &'r Settings,
-    /// Runtime configuration 
-    configuration: &'s C,
+    /// Data access configuration
+    pub configuration: &'s C,
+    /// Runtime settings 
+    settings: &'r Settings,
     /// ODBC Cursor object pointed at this column
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
     /// Which column are we at
@@ -440,10 +440,10 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
 pub struct Row<'r, 's, 'c, S, C: Configuration> {
     /// Schema information about this row
     pub schema: &'r [ColumnType],
-    /// Data access settings
-    pub settings: &'r Settings,
-    /// Runtime configuration 
-    configuration: &'s C,
+    /// Data access configuration
+    pub configuration: &'s C,
+    /// Runtime settings 
+    settings: &'r Settings,
     /// ODBC Cursor object
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
     /// Which column will shift next
@@ -473,8 +473,8 @@ impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
     ) -> Row<'r, 's, 'c, S, C> {
         Row {
             schema,
-            settings,
             configuration,
+            settings,
             cursor,
             index: 0,
             columns: schema.len() as u16,
@@ -487,8 +487,8 @@ impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
             .map(move |column_type| {
                 let column = Column {
                     column_type,
-                    settings: &self.settings,
                     configuration: self.configuration,
+                    settings: &self.settings,
                     cursor: &mut self.cursor,
                     index: self.index,
                 };
