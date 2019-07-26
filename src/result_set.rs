@@ -7,7 +7,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use crate::query::{Handle, PreparedStatement};
-use crate::row::{Options, Settings, Configuration, ColumnType, DatumAccessError, Row, TryFromRow, UnsupportedSqlDataType};
+use crate::row::{Settings, Configuration, ColumnType, DatumAccessError, Row, TryFromRow, UnsupportedSqlDataType};
 use crate::OdbcError;
 
 /// Error crating ResultSet iterator.
@@ -116,7 +116,8 @@ pub struct ResultSet<'h, 'c, V, S, C: Configuration> {
     statement: Option<ExecutedStatement<'c, S>>,
     schema: Vec<ColumnType>,
     columns: i16,
-    options: Options<'c, C>,
+    settings: &'c Settings,
+    configuration: C,
     phantom: PhantomData<&'h V>,
 }
 
@@ -125,7 +126,8 @@ impl<'h, 'c, V, S, C: Configuration> fmt::Debug for ResultSet<'h, 'c, V, S, C> {
         f.debug_struct("ResultSet")
             .field("schema", &self.schema)
             .field("columns", &self.columns)
-            .field("options", &self.options)
+            .field("settings", &self.settings)
+            .field("configuration", &self.configuration)
             .finish()
     }
 }
@@ -213,10 +215,8 @@ where
             schema,
             columns,
             phantom: PhantomData,
-            options: Options {
-                settings,
-                configuration,
-            },
+            settings,
+            configuration,
         })
     }
 
@@ -342,7 +342,8 @@ where
             return None;
         }
 
-        let options = &self.options;
+        let settings = self.settings;
+        let configuration = &self.configuration;
         let schema = &self.schema;
 
         statement
@@ -350,7 +351,7 @@ where
             .wrap_error_while("fetching row")
             .transpose()
             .map(|cursor| {
-                let row = Row::new(cursor?, schema, &options);
+                let row = Row::new(cursor?, schema, settings, configuration);
                 TryFromRow::try_from_row(row)
                     .map_err(|err| DataAccessError::FromRowError(Box::new(err)))
             })

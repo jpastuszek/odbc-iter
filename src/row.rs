@@ -28,13 +28,6 @@ pub struct Settings {
     pub utf_16_strings: bool,
 }
 
-//TODO: better name!
-#[derive(Debug)]
-pub struct Options<'c, C = DefaultConfiguration> {
-    pub settings: &'c Settings,
-    pub configuration: C,
-}
-
 /// This error can be returned if database provided column type does not match type requested by
 /// client
 #[derive(Debug)]
@@ -229,10 +222,27 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
 
 /// Represents SQL table column which can be converted to Rust native type.
 pub struct Column<'r, 's, 'c, S, C: Configuration> {
-    column_type: &'r ColumnType,
-    options: &'r Options<'c, C>,
+    /// Type information about this column
+    pub column_type: &'r ColumnType,
+    /// Data access settings
+    pub settings: &'r Settings,
+    /// Runtime configuration 
+    configuration: &'s C,
+    /// ODBC Cursor object pointed at this column
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
+    /// Which column are we at
     index: u16,
+}
+
+impl<'r, 's, 'c, S, C: Configuration> fmt::Debug for Column<'r, 's, 'c, S, C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Column")
+            .field("column_type", &self.column_type)
+            .field("settings", &self.settings)
+            .field("configuration", &self.configuration)
+            .field("index", &self.index)
+            .finish()
+    }
 }
 
 impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
@@ -240,14 +250,6 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         self.cursor
             .get_data::<T>(self.index + 1)
             .map_err(DatumAccessError::OdbcCursorError)
-    }
-
-    pub fn column_type(&self) -> &ColumnType {
-        self.column_type
-    }
-
-    pub fn options(&self) -> &Options<'c, C> {
-        self.options
     }
 
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
@@ -342,7 +344,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => self.into::<String>()?,
             SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR |
             SQL_UNKNOWN_TYPE => {
-                if self.options.settings.utf_16_strings {
+                if self.settings.utf_16_strings {
                     self.into::<&[u16]>()?
                         .map(|bytes| String::from_utf16(bytes).wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)"))
                         .transpose()?
@@ -435,24 +437,44 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
 }
 
 /// Represents SQL table row of Column objects.
-//TODO: Debug
 pub struct Row<'r, 's, 'c, S, C: Configuration> {
-    schema: &'r [ColumnType],
-    options: &'r Options<'c, C>,
+    /// Schema information about this row
+    pub schema: &'r [ColumnType],
+    /// Data access settings
+    pub settings: &'r Settings,
+    /// Runtime configuration 
+    configuration: &'s C,
+    /// ODBC Cursor object
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
+    /// Which column will shift next
     index: u16,
+    /// Numeber of columns
     columns: u16,
+}
+
+impl<'r, 's, 'c, S, C: Configuration> fmt::Debug for Row<'r, 's, 'c, S, C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Row")
+            .field("schema", &self.schema)
+            .field("settings", &self.settings)
+            .field("configuration", &self.configuration)
+            .field("index", &self.index)
+            .field("columns", &self.columns)
+            .finish()
+    }
 }
 
 impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
     pub fn new(
         cursor: odbc::Cursor<'s, 'c, 'c, S>,
         schema: &'r [ColumnType],
-        options: &'r Options<'c, C>,
+        settings: &'r Settings,
+        configuration: &'s C,
     ) -> Row<'r, 's, 'c, S, C> {
         Row {
             schema,
-            options,
+            settings,
+            configuration,
             cursor,
             index: 0,
             columns: schema.len() as u16,
@@ -465,7 +487,8 @@ impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
             .map(move |column_type| {
                 let column = Column {
                     column_type,
-                    options: &self.options,
+                    settings: &self.settings,
+                    configuration: self.configuration,
                     cursor: &mut self.cursor,
                     index: self.index,
                 };

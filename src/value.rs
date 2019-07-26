@@ -374,7 +374,7 @@ impl<C: Configuration> TryFromColumn<C> for Option<Value> {
     type Error = ColumnConvertError;
 
     fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
-        Ok(match column.column_type().datum_type {
+        Ok(match column.column_type.datum_type {
             DatumType::Bit => column.into_bool()?.map(Value::from),
             DatumType::Tinyint => column.into_i8()?.map(Value::from),
             DatumType::Smallint => column.into_i16()?.map(Value::from),
