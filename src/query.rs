@@ -226,18 +226,35 @@ impl fmt::Debug for Connection {
 
 impl Connection {
     /// Connect to database using connection string with default configuration options.
+    /// This implementation will synchronize driver connect calls.
     pub fn new(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
         Self::with_settings(odbc, connection_string, Default::default())
     }
 
     /// Connect to database using connection string with default configuration options.
-    /// This implementation will synchronize underlaying connection call which is useful with not thread safe drivers.
-    pub fn new_sync(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
-        Self::with_settings_sync(odbc, connection_string, Default::default())
+    /// Assume that driver connect call is thread safe.
+    pub unsafe fn new_concurrent(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
+        Self::with_settings_concurrent(odbc, connection_string, Default::default())
     }
 
     /// Connect to database using connection string with configuration options.
+    /// This implementation will synchronize driver connect calls.
     pub fn with_settings(
+        odbc: &'static Odbc,
+        connection_string: &str,
+        settings: Settings,
+    ) -> Result<Connection, OdbcError> {
+        unsafe {
+            let guard = CONNECT_MUTEX.lock().unwrap();
+            let res = Self::with_settings_concurrent(odbc, connection_string, settings);
+            drop(guard);
+            res
+        }
+    }
+
+    /// Connect to database using connection string with configuration options.
+    /// Assume that driver connect call is thread safe.
+    pub unsafe fn with_settings_concurrent(
         odbc: &'static Odbc,
         connection_string: &str,
         settings: Settings,
@@ -250,19 +267,6 @@ impl Connection {
                 connection,
                 settings,
             })
-    }
-
-    /// Connect to database using connection string with configuration options.
-    /// This implementation will synchronize underlaying connection call which is useful with not thread safe drivers.
-    pub fn with_settings_sync(
-        odbc: &'static Odbc,
-        connection_string: &str,
-        settings: Settings,
-    ) -> Result<Connection, OdbcError> {
-        let guard = CONNECT_MUTEX.lock().unwrap();
-        let res = Self::with_settings(odbc, connection_string, settings);
-        drop(guard);
-        res
     }
 }
 

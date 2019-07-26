@@ -392,17 +392,19 @@ impl Odbc {
     }
 
     /// Connect to database using connection string with default configuration options.
+    /// This implementation will synchronize driver connect calls.
     pub fn connect(connection_string: &str) -> Result<Connection, OdbcError> {
         Connection::new(&ODBC, connection_string)
     }
 
     /// Connect to database using connection string with default configuration options.
-    /// This implementation will synchronize underlaying connection call which is useful with not thread safe drivers.
-    pub fn connect_sync(connection_string: &str) -> Result<Connection, OdbcError> {
-        Connection::new_sync(&ODBC, connection_string)
+    /// Assume that driver connect call is thread safe.
+    pub unsafe fn connect_concurrent(connection_string: &str) -> Result<Connection, OdbcError> {
+        Connection::new_concurrent(&ODBC, connection_string)
     }
 
     /// Connect to database using connection string with configuration options.
+    /// This implementation will synchronize driver connect calls.
     pub fn connect_with_settings(
         connection_string: &str,
         settings: Settings,
@@ -411,12 +413,12 @@ impl Odbc {
     }
 
     /// Connect to database using connection string with configuration options.
-    /// This implementation will synchronize underlaying connection call which is useful with not thread safe drivers.
-    pub fn connect_with_settings_sync(
+    /// Assume that driver connect call is thread safe.
+    pub unsafe fn connect_with_settings_concurrent(
         connection_string: &str,
         settings: Settings,
     ) -> Result<Connection, OdbcError> {
-        Connection::with_settings_sync(&ODBC, connection_string, settings)
+        Connection::with_settings_concurrent(&ODBC, connection_string, settings)
     }
 }
 
@@ -466,12 +468,12 @@ pub mod tests {
 
     #[cfg(feature = "test-sql-server")]
     pub fn connect_sql_server() -> Connection {
-        Odbc::connect_sync(sql_server_connection_string().as_str()).expect("connect to SQL Server")
+        Odbc::connect(sql_server_connection_string().as_str()).expect("connect to SQL Server")
     }
 
     #[cfg(feature = "test-sql-server")]
     pub fn connect_sql_server_with_settings(settings: Settings) -> Connection {
-        Odbc::connect_with_settings_sync(sql_server_connection_string().as_str(), settings)
+        Odbc::connect_with_settings(sql_server_connection_string().as_str(), settings)
             .expect("connect to SQL ServerMonetDB")
     }
 
@@ -482,13 +484,17 @@ pub mod tests {
 
     #[cfg(feature = "test-hive")]
     pub fn connect_hive() -> Connection {
-        Odbc::connect(hive_connection_string().as_str()).expect("connect to Hive")
+        unsafe {
+            Odbc::connect_concurrent(hive_connection_string().as_str()).expect("connect to Hive")
+        }
     }
 
     #[cfg(feature = "test-hive")]
     pub fn connect_hive_with_settings(settings: Settings) -> Connection {
-        Odbc::connect_with_settings(hive_connection_string().as_str(), settings)
-            .expect("connect to Hive")
+        unsafe {
+            Odbc::connect_with_settings_concurrent(hive_connection_string().as_str(), settings)
+                .expect("connect to Hive")
+        }
     }
 
     #[cfg(feature = "test-monetdb")]
@@ -498,13 +504,17 @@ pub mod tests {
 
     #[cfg(feature = "test-monetdb")]
     pub fn connect_monetdb() -> Connection {
-        Odbc::connect(monetdb_connection_string().as_str()).expect("connect to MonetDB")
+        unsafe {
+            Odbc::connect_concurrent(monetdb_connection_string().as_str()).expect("connect to MonetDB")
+        }
     }
 
     #[cfg(feature = "test-monetdb")]
     pub fn connect_monetdb_with_settings(settings: Settings) -> Connection {
-        Odbc::connect_with_settings(monetdb_connection_string().as_str(), settings)
-            .expect("connect to MonetDB")
+        unsafe {
+            Odbc::connect_with_settings_concurrent(monetdb_connection_string().as_str(), settings)
+                .expect("connect to MonetDB")
+        }
     }
 
     #[cfg(feature = "test-hive")]
