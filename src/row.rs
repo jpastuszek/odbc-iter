@@ -254,6 +254,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
 
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/c-data-types?view=sql-server-2017
 
+    /// Reads `bool` value from column.
     pub fn into_bool(self) -> Result<Option<bool>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_BIT => self.into::<u8>()?.map(|byte| byte != 0),
@@ -266,6 +267,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `i8` value from column.
     pub fn into_i8(self) -> Result<Option<i8>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_TINYINT => self.into::<i8>()?,
@@ -278,6 +280,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `i16` value from column.
     pub fn into_i16(self) -> Result<Option<i16>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_SMALLINT => self.into::<i16>()?,
@@ -290,6 +293,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `i32` value from column.
     pub fn into_i32(self) -> Result<Option<i32>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_INTEGER => self.into::<i32>()?,
@@ -302,6 +306,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `i64` value from column.
     pub fn into_i64(self) -> Result<Option<i64>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_EXT_BIGINT => self.into::<i64>()?,
@@ -314,6 +319,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `f32` value from column.
     pub fn into_f32(self) -> Result<Option<f32>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_REAL | SqlDataType::SQL_FLOAT => self.into::<f32>()?,
@@ -326,6 +332,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `f64` value from column.
     pub fn into_f64(self) -> Result<Option<f64>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_DOUBLE => self.into::<f64>()?,
@@ -338,6 +345,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `String` value from column.
     pub fn into_string(self) -> Result<Option<String>, DatumAccessError> {
         use SqlDataType::*;
         Ok(match self.column_type.odbc_type {
@@ -361,6 +369,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `SqlTimestamp` value from column.
     pub fn into_timestamp(self) -> Result<Option<SqlTimestamp>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_TIMESTAMP => self.into::<SqlTimestamp>()?,
@@ -373,6 +382,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `SqlDate` value from column.
     pub fn into_date(self) -> Result<Option<SqlDate>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_DATE => self.into::<SqlDate>()?,
@@ -385,6 +395,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    /// Reads `SqlSsTime2` value from column.
     pub fn into_time(self) -> Result<Option<SqlSsTime2>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             SqlDataType::SQL_TIME => self.into::<SqlTime>()?.map(|ss| SqlSsTime2 {
@@ -404,6 +415,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
     }
 
     #[cfg(feature = "serde_json")]
+    /// Reads `serde_json::Value` value from column.
     pub fn into_json(self) -> Result<Option<serde_json::Value>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
             queried @ SqlDataType::SQL_UNKNOWN_TYPE => {
@@ -434,9 +446,14 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
             }
         })
     }
+
+    /// Gets column number in the row (first column is 0)
+    pub fn index(&self) -> u16 {
+        self.index
+    }
 }
 
-/// Represents SQL table row of Column objects.
+/// Represents SQL table row of `Column` objects.
 pub struct Row<'r, 's, 'c, S, C: Configuration> {
     /// Schema information about this row
     pub schema: &'r [ColumnType],
@@ -448,7 +465,7 @@ pub struct Row<'r, 's, 'c, S, C: Configuration> {
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
     /// Which column will shift next
     index: u16,
-    /// Numeber of columns
+    /// Number of columns
     columns: u16,
 }
 
@@ -498,6 +515,7 @@ impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
             })
     }
 
+    /// Gets number of columns
     pub fn columns(&self) -> u16 {
         self.columns
     }
