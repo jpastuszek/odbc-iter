@@ -13,7 +13,7 @@ use std::string::FromUtf16Error;
 use std::convert::TryInto;
 
 /// Data access configuration that can be used to configure data retrieval and conversion configured per `ResultSet` for given `Item` type.
-/// Configuration can be attached to `Handle` and will be cloneed per query so it can store query related data.
+/// Configuration can be attached to `Handle` and will be cloned per query so it can store per query state.
 pub trait Configuration: Default + Clone + fmt::Debug {} 
 
 /// Default configuration that allows converting rows to types supported by this crate.
