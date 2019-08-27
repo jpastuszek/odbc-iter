@@ -1,3 +1,5 @@
+[![Latest Version]][crates.io] [![Documentation]][docs.rs] ![License]
+
 `odbc-iter` is a Rust high level database access library based on `odbc` crate that uses native ODBC drivers to access a variety of databases.
 
 With this library you can:
@@ -56,7 +58,7 @@ for row in db.query::<(String, i8)>(
 // hello world 24
 // foo bar 32
 
-// Iterate rows with dynamically typed values using `ValueRow` type that can represent 
+// Iterate rows with dynamically typed values using `ValueRow` type that can represent
 // any row
 for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar', 32")
     .expect("failed to run query") {
@@ -66,3 +68,9 @@ for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar'
 // [Some(String("hello world")), Some(Tinyint(24))]
 // [Some(String("foo bar")), Some(Tinyint(32))]
 ```
+
+[crates.io]: https://crates.io/crates/odbc-iter
+[Latest Version]: https://img.shields.io/crates/v/odbc-iter.svg
+[Documentation]: https://docs.rs/odbc-iter/badge.svg
+[docs.rs]: https://docs.rs/odbc-iter
+[License]: https://img.shields.io/crates/l/odbc-iter.svg
