@@ -103,3 +103,47 @@ mod sql_timestamp {
 
 #[cfg(feature = "chrono")]
 pub use sql_timestamp::*;
+
+use std::borrow::Cow;
+
+#[derive(PartialEq, Eq, Debug)]
+pub struct CowString<'s>(pub Cow<'s, str>);
+
+impl<'s> From<String> for CowString<'s> {
+    fn from(s: String) -> CowString<'static> {
+        CowString(Cow::Owned(s))
+    }
+}
+
+impl<'s> From<&'s str> for CowString<'s> {
+    fn from(s: &'s str) -> CowString<'s> {
+        CowString(Cow::Borrowed(s))
+    }
+}
+
+impl<'s> From<Cow<'s, str>> for CowString<'s> {
+    fn from(s: Cow<'s, str>) -> CowString<'s> {
+        CowString(s)
+    }
+}
+
+unsafe impl<'s> OdbcType<'s> for CowString<'s> {
+    fn sql_data_type() -> ffi::SqlDataType {
+        String::sql_data_type()
+    }
+    fn c_data_type() -> ffi::SqlCDataType {
+        String::c_data_type()
+    }
+
+    fn convert(buffer: &'s [u8]) -> Self {
+        CowString(Cow::Owned(String::convert(buffer)))
+    }
+
+    fn column_size(&self) -> ffi::SQLULEN {
+        self.0.as_ref().column_size()
+    }
+
+    fn value_ptr(&self) -> ffi::SQLPOINTER {
+        self.0.as_ref().value_ptr()
+    }
+}
