@@ -14,7 +14,7 @@ use std::convert::TryInto;
 
 /// Data access configuration that can be used to configure data retrieval and conversion configured per `ResultSet` for given `Item` type.
 /// Configuration can be attached to `Handle` and will be cloned per query so it can store per query state.
-pub trait Configuration: Default + Clone + fmt::Debug {} 
+pub trait Configuration: Default + Clone + fmt::Debug {}
 
 /// Default configuration that allows converting rows to types supported by this crate.
 #[derive(Debug, Default, Clone)]
@@ -226,7 +226,7 @@ pub struct Column<'r, 's, 'c, S, C: Configuration> {
     pub column_type: &'r ColumnType,
     /// Data access configuration
     pub configuration: &'s C,
-    /// Runtime settings 
+    /// Runtime settings
     settings: &'r Settings,
     /// ODBC Cursor object pointed at this column
     cursor: &'r mut odbc::Cursor<'s, 'c, 'c, S>,
@@ -459,7 +459,7 @@ pub struct Row<'r, 's, 'c, S, C: Configuration> {
     pub schema: &'r [ColumnType],
     /// Data access configuration
     pub configuration: &'s C,
-    /// Runtime settings 
+    /// Runtime settings
     settings: &'r Settings,
     /// ODBC Cursor object
     cursor: odbc::Cursor<'s, 'c, 'c, S>,
@@ -948,5 +948,251 @@ try_from_tuple! {
         (9) -> TJ
         (10) -> TK
         (11) -> TL
+    }
+    Tuple13 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+    }
+    Tuple14 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+    }
+    Tuple15 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+    }
+    Tuple16 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+    }
+    Tuple17 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+    }
+    Tuple18 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+    }
+    Tuple19 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+        (19) -> TS
+    }
+    Tuple20 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+        (19) -> TS
+        (20) -> TT
+    }
+    Tuple21 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+        (19) -> TS
+        (20) -> TT
+        (21) -> TU
+    }
+    Tuple22 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+        (19) -> TS
+        (20) -> TT
+        (21) -> TU
+        (22) -> TV
+    }
+    Tuple23 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+        (19) -> TS
+        (20) -> TT
+        (21) -> TU
+        (22) -> TV
+        (23) -> TW
+    }
+    Tuple24 {
+        (0) -> TA
+        (1) -> TB
+        (2) -> TC
+        (3) -> TD
+        (4) -> TE
+        (5) -> TF
+        (6) -> TG
+        (7) -> TH
+        (8) -> TI
+        (9) -> TJ
+        (10) -> TK
+        (11) -> TL
+        (13) -> TM
+        (14) -> TN
+        (15) -> TO
+        (16) -> TP
+        (17) -> TQ
+        (18) -> TR
+        (19) -> TS
+        (20) -> TT
+        (21) -> TU
+        (22) -> TV
+        (23) -> TW
+        (24) -> TY
     }
 }
