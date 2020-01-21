@@ -13,7 +13,6 @@ With this library you can:
 * create thread local connections for multithreaded applications.
 
 Things still missing:
-* support for `DECIMAL` types - currently `DECIMAL` columns need to be cast to `DOUBLE` on the query (PR welcome),
 * rest of this list - please open issue in `GitHub` issue tracker for missing functionality, bugs, etc..
 
 Example usage
