@@ -5,11 +5,13 @@ use std::error::Error;
 use std::fmt;
 
 #[cfg(feature = "chrono")]
-use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+pub use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 #[cfg(feature = "chrono")]
-use chrono::{Datelike, Timelike};
+pub use chrono::{Datelike, Timelike};
 #[cfg(feature = "rust_decimal")]
-use rust_decimal::Decimal;
+pub use rust_decimal::Decimal;
+#[cfg(feature = "serde_json")]
+pub use serde_json::Value as Json;
 
 /// Representation of every supported column value.
 #[derive(Clone, PartialEq)]
@@ -28,7 +30,7 @@ pub enum Value {
     Date(SqlDate),
     Time(SqlSsTime2),
     #[cfg(feature = "serde_json")]
-    Json(serde_json::Value),
+    Json(Json),
 }
 
 /// Note that `as_` methods return reference so values can be parameter-bound to a query.
@@ -216,7 +218,7 @@ impl Value {
     }
 
     #[cfg(feature = "serde_json")]
-    pub fn as_json(&self) -> Option<&serde_json::Value> {
+    pub fn as_json(&self) -> Option<&Json> {
         match self {
             Value::Json(value) => Some(value),
             _ => None,
@@ -224,7 +226,7 @@ impl Value {
     }
 
     #[cfg(feature = "serde_json")]
-    pub fn into_json(self) -> Result<serde_json::Value, Value> {
+    pub fn into_json(self) -> Result<Json, Value> {
         match self {
             Value::Json(value) => Ok(value),
             _ => Err(self),
@@ -385,8 +387,8 @@ impl From<SqlSsTime2> for Value {
 }
 
 #[cfg(feature = "serde_json")]
-impl From<serde_json::Value> for Value {
-    fn from(value: serde_json::Value) -> Value {
+impl From<Json> for Value {
+    fn from(value: Json) -> Value {
         Value::Json(value)
     }
 }
@@ -685,7 +687,7 @@ try_from_value_owned![SqlSsTime2, into_time];
 #[cfg(feature = "chrono")]
 try_from_value_copy![NaiveTime, to_naive_time];
 #[cfg(feature = "serde_json")]
-try_from_value_owned![serde_json::Value, into_json];
+try_from_value_owned![Json, into_json];
 
 #[cfg(feature = "serde")]
 mod ser {
