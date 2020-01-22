@@ -57,7 +57,7 @@ for row in db.query::<(String, i8)>(
 // hello world 24
 // foo bar 32
 
-// Iterate rows with dynamically typed values using `ValueRow` type that can represent 
+// Iterate rows with dynamically typed values using `ValueRow` type that can represent
 // any row
 for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar', 32")
     .expect("failed to run query") {
@@ -96,8 +96,8 @@ let parametrized_query = db
 // Database can infer schema of prepared statement
 println!("{:?}", prepared_statement.schema());
 // Prints:
-// Ok([ColumnType { datum_type: String, odbc_type: SQL_VARCHAR, nullable: false, name: "foo" }, 
-// ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: "bar" }, 
+// Ok([ColumnType { datum_type: String, odbc_type: SQL_VARCHAR, nullable: false, name: "foo" },
+// ColumnType { datum_type: Integer, odbc_type: SQL_INTEGER, nullable: true, name: "bar" },
 // ColumnType { datum_type: Bigint, odbc_type: SQL_EXT_BIGINT, nullable: true, name: "baz" }])
 
 // Execute prepared statement without binding parameters
@@ -105,7 +105,7 @@ let result_set = db
     .execute::<ValueRow>(prepared_statement)
     .expect("failed to run query");
 
-// Note that in this example `prepared_statement` will be dropped with the `result_set` 
+// Note that in this example `prepared_statement` will be dropped with the `result_set`
 // iterator and cannot be reused
 for row in result_set {
     println!("{:?}", row.expect("failed to fetch row"))
@@ -162,7 +162,7 @@ let connection_string = std::env::var("DB_CONNECTION_STRING")
 // `connection_with` can be used to create one connection per thread
 let result = odbc_iter::thread_local::connection_with(&connection_string, |mut connection| {
     // Provided object contains result of the connection operation
-    // in case of error calling `connection_with` again will result 
+    // in case of error calling `connection_with` again will result
     // in new connection attempt
     let mut connection = connection.expect("failed to connect");
 
@@ -173,9 +173,9 @@ let result = odbc_iter::thread_local::connection_with(&connection_string, |mut c
     let result = db.query::<String>("SELECT 'hello world'")
         .expect("failed to run query").single().expect("failed to fetch row");
 
-    // Return connection back to thread local so it can be reused later on along 
+    // Return connection back to thread local so it can be reused later on along
     // with the result of the query that will be returned by the `connection_with` call
-    // Returning `None` connection is useful to force new connection attempt on the 
+    // Returning `None` connection is useful to force new connection attempt on the
     // next call
     (Some(connection), result)
 });
@@ -639,7 +639,7 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_string_empty() {
-        let mut monetdb = crate::tests::connect_monetdb();;
+        let mut monetdb = crate::tests::connect_monetdb();
 
         let data = monetdb
             .handle()
@@ -654,7 +654,7 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     #[test]
     fn test_moentdb_json() {
-        let mut monetdb = crate::tests::connect_monetdb();;
+        let mut monetdb = crate::tests::connect_monetdb();
 
         let data = monetdb
             .handle()
@@ -687,6 +687,36 @@ pub mod tests {
 
         assert_matches!(data[0][0], Some(Value::Float(number)) => assert!(number > 1.0 && number < 2.0));
         assert_matches!(data[0][1], Some(Value::Double(number)) => assert!(number > 2.0 && number < 3.0));
+    }
+
+    #[cfg(all(feature = "test-monetdb", feature = "rust_decimal"))]
+    #[test]
+    fn test_moentdb_types_decimal() {
+        let mut monetdb = crate::tests::connect_monetdb();
+
+        let data = monetdb
+            .handle()
+            .query::<ValueRow>("SELECT 10.9231213232423424324")
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+
+        assert_matches!(data[0][0], Some(Value::Decimal(ref dec)) => assert_eq!(dec.to_string(), "10.9231213232423424324"));
+    }
+
+    #[cfg(all(feature = "test-sql-server", feature = "rust_decimal"))]
+    #[test]
+    fn test_sql_server_types_decimal() {
+        let mut connection = connect_sql_server();
+
+        let data = connection
+            .handle()
+            .query::<ValueRow>("SELECT 10.9231213232423424324")
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+
+        assert_matches!(data[0][0], Some(Value::Decimal(ref dec)) => assert_eq!(dec.to_string(), "10.9231213232423424324"));
     }
 
     #[cfg(feature = "test-hive")]

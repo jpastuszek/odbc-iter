@@ -417,7 +417,7 @@ mod tests {
     #[test]
     #[cfg(feature = "test-monetdb")]
     fn test_single_nullable_value() {
-        let mut db = crate::tests::connect_monetdb();;
+        let mut db = crate::tests::connect_monetdb();
 
         let value: Option<Value> = db
             .handle()
