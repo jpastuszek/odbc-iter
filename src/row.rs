@@ -16,6 +16,8 @@ use std::convert::TryInto;
 use rust_decimal::Decimal;
 #[cfg(feature = "rust_decimal")]
 use std::str::FromStr;
+#[cfg(feature = "rust_decimal")]
+use crate::odbc_type::numeric::SqlNumeric;
 
 /// Data access configuration that can be used to configure data retrieval and conversion configured per `ResultSet` for given `Item` type.
 /// Configuration can be attached to `Handle` and will be cloned per query so it can store per query state.
@@ -151,9 +153,8 @@ pub enum DatumType {
     Float,
     /// Use `Column::into_f64()` to get column value.
     Double,
-    #[cfg(feature = "rust_decimal")]
-    /// Use `Column::into_decimal()` to get column value.
-    Decimal,
+    /// Use `Column::into_numeric()` to get column value.
+    Numeric,
     /// Use `Column::into_string()` to get column value.
     String,
     /// Use `Column::into_timestamp()` to get column value.
@@ -178,8 +179,7 @@ impl DatumType {
             DatumType::Bigint => "BIGINT",
             DatumType::Float => "FLOAT",
             DatumType::Double => "DOUBLE",
-            #[cfg(feature = "rust_decimal")]
-            DatumType::Decimal => "DECIMAL",
+            DatumType::Numeric => "NUMERIC",
             DatumType::String => "STRING",
             DatumType::Timestamp => "TIMESTAMP",
             DatumType::Date => "DATE",
@@ -204,7 +204,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
             SQL_FLOAT | SQL_REAL => DatumType::Float,
             SQL_DOUBLE => DatumType::Double,
             #[cfg(feature = "rust_decimal")]
-            SQL_DECIMAL | SQL_NUMERIC => DatumType::Decimal,
+            SQL_DECIMAL | SQL_NUMERIC => DatumType::Numeric,
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR | SQL_EXT_WCHAR | SQL_EXT_WVARCHAR
             | SQL_EXT_WLONGVARCHAR => DatumType::String,
             SQL_TIMESTAMP => DatumType::Timestamp,
@@ -357,21 +357,21 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
-    #[cfg(feature = "rust_decimal")]
-    /// Reads `Decimal` value from column.
-    pub fn into_decimal(self) -> Result<Option<Decimal>, DatumAccessError> {
+    /// Reads `SqlNumeric` value from column.
+    pub fn into_numeric(self) -> Result<Option<SqlNumeric>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {
-            SqlDataType::SQL_DECIMAL | SqlDataType::SQL_NUMERIC => {
-                // Since Decimal isn't an OdbcType, get the String representation and convert that to a Decimal instead
-                let decimal_as_string = &self.into::<String>()?;
-                match decimal_as_string {
-                    Some(s) => Some(Decimal::from_str(&s).unwrap()),
-                    None => None
-                }
-            },
+            SqlDataType::SQL_NUMERIC => self.into::<SqlNumeric>()?,
+            //SqlDataType::SQL_DECIMAL => {
+            //    // Since Decimal isn't an OdbcType, get the String representation and convert that to a Decimal instead
+            //    let decimal_as_string = &self.into::<String>()?;
+            //    match decimal_as_string {
+            //        Some(s) => Some(Decimal::from_str(&s).unwrap()),
+            //        None => None
+            //    }
+            //},
             queried => {
                 return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
-                    requested: "DECIMAL",
+                    requested: "NUMERIC",
                     queried,
                 }))
             }

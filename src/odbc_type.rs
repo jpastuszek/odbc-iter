@@ -101,6 +101,49 @@ mod sql_timestamp {
     }
 }
 
+//TODO: This should be part of odbc and odbc-sys crates!
+pub mod numeric {
+    use super::*;
+    use std::mem::{size_of, transmute};
+
+    // https://github.com/microsoft/ODBC-Specification/blob/b7ef71fba508ed010cd979428efae3091b732d75/Windows/inc/sqltypes.h#L306
+    #[repr(C)]
+    #[allow(non_camel_case_types)]
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
+    pub struct SQL_NUMERIC_STRUCT {
+        pub precision: u8,
+        pub scale: i8,
+        pub sign: u8,
+        pub val: [u8; 16],
+    }
+
+    pub type SqlNumeric = SQL_NUMERIC_STRUCT;
+
+    unsafe impl<'a> OdbcType<'a> for SqlNumeric {
+        fn sql_data_type() -> ffi::SqlDataType {
+            ffi::SQL_NUMERIC
+        }
+        fn c_data_type() -> ffi::SqlCDataType {
+            ffi::SQL_C_NUMERIC
+        }
+
+        fn convert(buffer: &'a [u8]) -> Self {
+            assert_eq!(buffer.len(), size_of::<Self>());
+            unsafe {
+                let ptr = buffer.as_ptr() as *const [u8; size_of::<Self>()];
+                transmute(*ptr)
+            }
+        }
+
+        fn column_size(&self) -> ffi::SQLULEN {
+            size_of::<Self>() as ffi::SQLULEN
+        }
+        fn value_ptr(&self) -> ffi::SQLPOINTER {
+            self as *const Self as ffi::SQLPOINTER
+        }
+    }
+}
+
 #[cfg(feature = "chrono")]
 pub use sql_timestamp::*;
 
