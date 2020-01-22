@@ -698,7 +698,7 @@ mod ser {
                 Value::Bigint(n) => serializer.serialize_i64(n),
                 Value::Float(n) => serializer.serialize_f32(n),
                 Value::Double(n) => serializer.serialize_f64(n),
-                Value::Decimal(n) => n.serialize(serializer),
+                Value::Decimal(n) => Serialize::serialize(&n, serializer),
                 Value::String(ref s) => serializer.serialize_str(s),
                 ref value @ Value::Timestamp(_)
                 | ref value @ Value::Date(_)
