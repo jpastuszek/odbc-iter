@@ -715,6 +715,8 @@ mod ser {
 
         #[test]
         fn serialize_value_primitive() {
+            use std::str::FromStr;
+
             assert_eq!(&serde_json::to_string(&Value::Bit(true)).unwrap(), "true");
             assert_eq!(&serde_json::to_string(&Value::Bit(false)).unwrap(), "false");
 
@@ -731,12 +733,16 @@ mod ser {
             );
 
             assert_eq!(
-                &serde_json::to_string(&Value::Decimal(-1.1)).unwrap(),
-                "-1.1"
+                &serde_json::to_string(&Value::Decimal(Decimal::from_str("-1.1").unwrap())).unwrap(),
+                "\"-1.1\""
             );
             assert_eq!(
-                &serde_json::to_string(&Value::Decimal(33.22)).unwrap(),
-                "33.22"
+                &serde_json::to_string(&Value::Decimal(Decimal::from_str("33.22").unwrap())).unwrap(),
+                "\"33.22\""
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::Decimal(Decimal::from_str("10.9231213232423424323423234234").unwrap())).unwrap(),
+                "\"10.923121323242342432342323423\""
             );
 
             assert_eq!(
