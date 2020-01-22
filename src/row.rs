@@ -6,13 +6,16 @@ use error_context::prelude::*;
 use odbc::ffi::SqlDataType;
 use odbc::{ColumnDescriptor, DiagnosticRecord, OdbcType};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
-use rust_decimal::Decimal;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::string::FromUtf16Error;
-use std::str::FromStr;
 use std::convert::TryInto;
+
+#[cfg(feature = "rust_decimal")]
+use rust_decimal::Decimal;
+#[cfg(feature = "rust_decimal")]
+use std::str::FromStr;
 
 /// Data access configuration that can be used to configure data retrieval and conversion configured per `ResultSet` for given `Item` type.
 /// Configuration can be attached to `Handle` and will be cloned per query so it can store per query state.
@@ -148,6 +151,7 @@ pub enum DatumType {
     Float,
     /// Use `Column::into_f64()` to get column value.
     Double,
+    #[cfg(feature = "rust_decimal")]
     /// Use `Column::into_decimal()` to get column value.
     Decimal,
     /// Use `Column::into_string()` to get column value.
@@ -174,6 +178,7 @@ impl DatumType {
             DatumType::Bigint => "BIGINT",
             DatumType::Float => "FLOAT",
             DatumType::Double => "DOUBLE",
+            #[cfg(feature = "rust_decimal")]
             DatumType::Decimal => "DECIMAL",
             DatumType::String => "STRING",
             DatumType::Timestamp => "TIMESTAMP",
@@ -198,6 +203,7 @@ impl TryFrom<ColumnDescriptor> for ColumnType {
             SQL_EXT_BIGINT => DatumType::Bigint,
             SQL_FLOAT | SQL_REAL => DatumType::Float,
             SQL_DOUBLE => DatumType::Double,
+            #[cfg(feature = "rust_decimal")]
             SQL_DECIMAL | SQL_NUMERIC => DatumType::Decimal,
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR | SQL_EXT_WCHAR | SQL_EXT_WVARCHAR
             | SQL_EXT_WLONGVARCHAR => DatumType::String,
@@ -351,6 +357,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         })
     }
 
+    #[cfg(feature = "rust_decimal")]
     /// Reads `Decimal` value from column.
     pub fn into_decimal(self) -> Result<Option<Decimal>, DatumAccessError> {
         Ok(match self.column_type.odbc_type {

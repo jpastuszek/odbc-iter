@@ -1,6 +1,5 @@
 use crate::row::{Configuration, DatumType, Column, TryFromColumn, ColumnConvertError};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
-use rust_decimal::Decimal;
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
 use std::fmt;
@@ -9,6 +8,8 @@ use std::fmt;
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 #[cfg(feature = "chrono")]
 use chrono::{Datelike, Timelike};
+#[cfg(feature = "rust_decimal")]
+use rust_decimal::Decimal;
 
 /// Representation of every supported column value.
 #[derive(Clone, PartialEq)]
@@ -20,6 +21,7 @@ pub enum Value {
     Bigint(i64),
     Float(f32),
     Double(f64),
+    #[cfg(feature = "rust_decimal")]
     Decimal(Decimal),
     String(String),
     Timestamp(SqlTimestamp),
@@ -105,6 +107,7 @@ impl Value {
         }
     }
 
+    #[cfg(feature = "rust_decimal")]
     pub fn as_decimal(&self) -> Option<&Decimal> {
         match self {
             Value::Decimal(value) => Some(value),
@@ -238,6 +241,7 @@ impl Value {
             Value::Bigint(_) => DatumType::Bigint,
             Value::Float(_) => DatumType::Float,
             Value::Double(_) => DatumType::Double,
+            #[cfg(feature = "rust_decimal")]
             Value::Decimal(_) => DatumType::Decimal,
             Value::String(_) => DatumType::String,
             Value::Timestamp(_) => DatumType::Timestamp,
@@ -291,6 +295,7 @@ impl From<f64> for Value {
     }
 }
 
+#[cfg(feature = "rust_decimal")]
 impl From<Decimal> for Value {
     fn from(value: Decimal) -> Value {
         Value::Decimal(value)
@@ -398,6 +403,7 @@ impl<C: Configuration> TryFromColumn<C> for Option<Value> {
             DatumType::Bigint => column.into_i64()?.map(Value::from),
             DatumType::Float => column.into_f32()?.map(Value::from),
             DatumType::Double => column.into_f64()?.map(Value::from),
+            #[cfg(feature = "rust_decimal")]
             DatumType::Decimal => column.into_decimal()?.map(Value::from),
             DatumType::String => column.into_string()?.map(Value::from),
             DatumType::Timestamp => column.into_timestamp()?.map(Value::from),
@@ -428,6 +434,7 @@ impl fmt::Display for Value {
             Value::Bigint(ref n) => fmt::Display::fmt(n, f),
             Value::Float(ref n) => fmt::Display::fmt(n, f),
             Value::Double(ref n) => fmt::Display::fmt(n, f),
+            #[cfg(feature = "rust_decimal")]
             Value::Decimal(ref n) => fmt::Display::fmt(n, f),
             Value::String(ref s) => fmt::Display::fmt(s, f),
             Value::Timestamp(ref timestamp) => write!(
@@ -468,6 +475,7 @@ impl fmt::Debug for Value {
             Value::Bigint(ref n) => f.debug_tuple("Bigint").field(n).finish(),
             Value::Float(ref n) => f.debug_tuple("Float").field(n).finish(),
             Value::Double(ref n) => f.debug_tuple("Double").field(n).finish(),
+            #[cfg(feature = "rust_decimal")]
             Value::Decimal(ref n) => f.debug_tuple("Decimal").field(n).finish(),
             Value::String(ref s) => f.debug_tuple("String").field(s).finish(),
             timestamp @ Value::Timestamp(_) => f
@@ -698,6 +706,7 @@ mod ser {
                 Value::Bigint(n) => serializer.serialize_i64(n),
                 Value::Float(n) => serializer.serialize_f32(n),
                 Value::Double(n) => serializer.serialize_f64(n),
+                #[cfg(feature = "rust_decimal")]
                 Value::Decimal(n) => Serialize::serialize(&n, serializer),
                 Value::String(ref s) => serializer.serialize_str(s),
                 ref value @ Value::Timestamp(_)
@@ -715,8 +724,6 @@ mod ser {
 
         #[test]
         fn serialize_value_primitive() {
-            use std::str::FromStr;
-
             assert_eq!(&serde_json::to_string(&Value::Bit(true)).unwrap(), "true");
             assert_eq!(&serde_json::to_string(&Value::Bit(false)).unwrap(), "false");
 
@@ -733,6 +740,21 @@ mod ser {
             );
 
             assert_eq!(
+                &serde_json::to_string(&Value::String("foo".to_owned())).unwrap(),
+                "\"foo\""
+            );
+            assert_eq!(
+                &serde_json::to_string(&Value::String("bar baz".to_owned())).unwrap(),
+                "\"bar baz\""
+            );
+        }
+
+        #[cfg(feature = "rust_decimal")]
+        #[test]
+        fn serialize_value_decimal() {
+            use std::str::FromStr;
+
+            assert_eq!(
                 &serde_json::to_string(&Value::Decimal(Decimal::from_str("-1.1").unwrap())).unwrap(),
                 "\"-1.1\""
             );
@@ -743,15 +765,6 @@ mod ser {
             assert_eq!(
                 &serde_json::to_string(&Value::Decimal(Decimal::from_str("10.9231213232423424323423234234").unwrap())).unwrap(),
                 "\"10.923121323242342432342323423\""
-            );
-
-            assert_eq!(
-                &serde_json::to_string(&Value::String("foo".to_owned())).unwrap(),
-                "\"foo\""
-            );
-            assert_eq!(
-                &serde_json::to_string(&Value::String("bar baz".to_owned())).unwrap(),
-                "\"bar baz\""
             );
         }
 
