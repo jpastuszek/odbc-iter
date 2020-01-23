@@ -245,7 +245,7 @@ impl Connection {
         settings: Settings,
     ) -> Result<Connection, OdbcError> {
         unsafe {
-            let guard = CONNECT_MUTEX.lock().unwrap();
+            let guard = CONNECT_MUTEX.lock().expect("Connection Mutex is poisoned!");
             let res = Self::with_settings_concurrent(odbc, connection_string, settings);
             drop(guard);
             res
@@ -278,21 +278,21 @@ impl Connection {
 /// query or allocate more `PreparedStatement` objects.
 #[derive(Debug)]
 pub struct Handle<'c, C: Configuration = DefaultConfiguration> {
-    connection: &'c Connection, 
+    connection: &'c Connection,
     configuration: C,
 }
 
 impl<'c: 'c> Connection {
     pub fn handle(&'c mut self) -> Handle<'c, DefaultConfiguration> {
         Handle {
-            connection: self, 
+            connection: self,
             configuration: DefaultConfiguration,
         }
     }
 
     pub fn handle_with_configuration<C: Configuration>(&'c mut self, configuration: C) -> Handle<'c, C> {
         Handle {
-            connection: self, 
+            connection: self,
             configuration,
         }
     }
@@ -301,7 +301,7 @@ impl<'c: 'c> Connection {
 impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
     pub fn with_configuration<CNew: Configuration>(&mut self, configuration: CNew) -> Handle<'c, CNew> {
         Handle {
-            connection: self.connection, 
+            connection: self.connection,
             configuration,
         }
     }
