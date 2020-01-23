@@ -13,7 +13,8 @@ With this library you can:
 * create thread local connections for multithreaded applications.
 
 Things still missing:
-* rest of this list - please open issue in `GitHub` issue tracker for missing functionality, bugs, etc..
+* Full support for binary encoded NUMERICAL type (decimals) - current `Decimal` implementation depends on parsing string representation of the values (can be enabled with `rust_decimal` feature).
+* Rest of this list - please open issue in `GitHub` issue tracker for missing functionality, bugs, etc..
 
 Example usage
 =============

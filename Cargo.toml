@@ -12,7 +12,7 @@ license = "MIT"
 edition = "2018"
 
 [features]
-default = ["chrono", "rust_decimal"]
+default = ["chrono"]
 test-hive = []
 test-sql-server = []
 test-monetdb = []
