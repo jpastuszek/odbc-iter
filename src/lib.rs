@@ -264,6 +264,66 @@ println!("{}", serde_json::to_string(&row).expect("failed to serialize"));
 // ["hello world",42,10000000]
 # }
 ```
+
+UTF-16 databases (e.g. SQL Server)
+=============
+
+With SQL Server `NVARCHAR` data cannot be passed via query text (`N"foo"`) as query text itself is encoded as Rust String and hence UTF-8 and not UTF-16 as expected by SQL Server.
+
+To correctly query `NVARCHAR` columns as `String` connection has to be configured like this:
+```rust
+use odbc_iter::{Odbc, Settings, ValueRow};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+
+let mut connection = Odbc::connect_with_settings(&connection_string, Settings {
+    utf_16_strings: true,
+}).expect("failed to connect to database");
+```
+
+To correctly insert `NVARCHAR` column value, the `String` has to be cast to UTF-16 and bound as `&[u16]`:
+```rust
+use odbc_iter::{Odbc, Settings, ValueRow};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+
+let mut connection = Odbc::connect_with_settings(&connection_string, Settings {
+    utf_16_strings: true,
+}).expect("failed to connect to database");
+
+let mut db = connection.handle();
+
+let utf_16_string = "Fóó".encode_utf16().collect::<Vec<u16>>();
+let data: ValueRow = db.query_with_parameters("SELECT ? AS val", |q| q.bind(&utf_16_string))
+    .expect("failed to run query")
+    .single()
+    .expect("fetch data");
+```
+
+Alternatively the provided `StringUtf16` type can be bound (implementes Deserialize and custom Debug):
+```rust
+use odbc_iter::{Odbc, Settings, ValueRow, StringUtf16};
+
+// Connect to database using connection string
+let connection_string = std::env::var("DB_CONNECTION_STRING")
+    .expect("DB_CONNECTION_STRING environment not set");
+
+let mut connection = Odbc::connect_with_settings(&connection_string, Settings {
+    utf_16_strings: true,
+}).expect("failed to connect to database");
+
+let mut db = connection.handle();
+
+let utf_16_string = StringUtf16::from("Fóó");
+let data: ValueRow = db.query_with_parameters("SELECT ? AS val", |q| q.bind(&utf_16_string))
+    .expect("failed to run query")
+    .single()
+    .expect("fetch data");
+```
 !*/
 
 use error_context::prelude::*;
@@ -293,6 +353,8 @@ pub use value_row::*;
 
 pub mod odbc_type;
 pub mod thread_local;
+
+pub use odbc_type::StringUtf16;
 
 /// ODBC library initialization and connection errors.
 #[derive(Debug)]
@@ -941,21 +1003,6 @@ pub mod tests {
         assert!(data.is_empty());
     }
 
-    #[cfg(feature = "test-sql-server")]
-    #[test]
-    fn test_sql_server_long_string_fetch_utf_8() {
-        let mut connection = connect_sql_server();
-
-        let data = connection
-            .handle()
-            .query::<ValueRow>(&format!("SELECT N'{}'", LONG_STRING))
-            .expect("failed to run query")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("fetch data");
-
-        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
-    }
-
     #[cfg(feature = "test-hive")]
     #[test]
     fn test_hive_long_string_fetch_utf_8() {
@@ -994,6 +1041,30 @@ pub mod tests {
         });
 
         let utf_16_string = LONG_STRING.encode_utf16().collect::<Vec<u16>>();
+
+        let mut handle = connection.handle();
+
+        let statement = handle
+            .prepare("SELECT ? AS val;")
+            .expect("prepare statement");
+
+        let data: Vec<ValueRow> = handle
+            .execute_with_parameters(statement, |q| q.bind(&utf_16_string))
+            .expect("failed to run query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fetch data");
+
+        assert_matches!(data[0][0], Some(Value::String(ref string)) => assert_eq!(string, LONG_STRING));
+    }
+
+    #[cfg(feature = "test-sql-server")]
+    #[test]
+    fn test_sql_server_long_string_fetch_utf_16_bind_string_utf_16() {
+        let mut connection = connect_sql_server_with_settings(Settings {
+            utf_16_strings: true,
+        });
+
+        let utf_16_string = StringUtf16::from(LONG_STRING);
 
         let mut handle = connection.handle();
 

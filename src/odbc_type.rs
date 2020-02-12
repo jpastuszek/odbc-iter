@@ -1,5 +1,7 @@
 //! Extra types that represent SQL data values but with extra from/to implementations for `OdbcType` so they can be bound to query parameter
 
+use std::fmt;
+
 // Allow for custom type implementation
 pub use odbc::{ffi, OdbcType};
 
@@ -106,6 +108,7 @@ pub use sql_timestamp::*;
 
 use std::borrow::Cow;
 
+/// Owned or borrowed string that can be bound as statement parameter.
 #[derive(PartialEq, Eq, Debug)]
 pub struct CowString<'s>(pub Cow<'s, str>);
 
@@ -145,5 +148,59 @@ unsafe impl<'s> OdbcType<'s> for CowString<'s> {
 
     fn value_ptr(&self) -> ffi::SQLPOINTER {
         self.0.as_ref().value_ptr()
+    }
+}
+
+/// UTF-16 encoded string that can be bound as statement parameter.
+#[derive(PartialEq, Eq)]
+pub struct StringUtf16(pub Vec<u16>);
+
+impl fmt::Debug for StringUtf16 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "N{:?}", String::from_utf16(&self.0).expect("StringUtf16 is not valid UTF-16 encoded string"))
+    }
+}
+
+impl From<String> for StringUtf16 {
+    fn from(s: String) -> StringUtf16 {
+        s.as_str().into()
+    }
+}
+
+impl From<&str> for StringUtf16 {
+    fn from(s: &str) -> StringUtf16 {
+        StringUtf16(s.encode_utf16().collect())
+    }
+}
+
+unsafe impl<'a> OdbcType<'a> for StringUtf16 {
+    fn sql_data_type() -> ffi::SqlDataType {
+        <&[u16]>::sql_data_type()
+    }
+    fn c_data_type() -> ffi::SqlCDataType {
+        <&[u16]>::c_data_type()
+    }
+
+    fn convert(buffer: &[u8]) -> Self {
+        StringUtf16(<&[u16]>::convert(buffer).to_owned())
+    }
+
+    fn column_size(&self) -> ffi::SQLULEN {
+        <&[u16]>::column_size(&self.0.as_slice())
+    }
+
+    fn value_ptr(&self) -> ffi::SQLPOINTER {
+        self.0.as_ptr() as *const &[u16] as ffi::SQLPOINTER
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Deserialize<'de> for StringUtf16 {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<StringUtf16, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)
+            .map(From::from)
     }
 }
