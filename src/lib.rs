@@ -331,7 +331,7 @@ Runtime statistics (with "statistics" feature)
 If enabled, function `odbc_iter::statistics()` will provide runtime statistics that can be `Display`ed.
 
 ```
-ODBC statistics: connections: open: 16, queries: executing: 0, fetching: 4, done: 11, failed: 4
+ODBC statistics: connections: open: 5, queries: preparing: 2, executing: 1, fetching: 2, done: 5, failed: 0
 ```
 
 Note that they are not strongly synchronised so things may be observed counted twice.

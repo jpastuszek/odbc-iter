@@ -358,10 +358,12 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
     pub fn prepare(&'h mut self, query: &str) -> Result<PreparedStatement<'c>, OdbcError> {
         debug!("Preparing ODBC query: {}", &query);
 
-        let statement = self
-            .statement()?
-            .prepare(query)
-            .wrap_error_while("preparing query")?;
+        let statement = stats::query_preparing(|| -> Result<_, OdbcError> {
+            Ok(self
+                .statement()?
+                .prepare(query)
+                .wrap_error_while("preparing query")?)
+        })?;
 
         Ok(PreparedStatement(statement))
     }
@@ -387,7 +389,10 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
     {
         debug!("Direct ODBC query: {}", &query);
 
-        let statement = bind(self.statement()?.into())?.into_inner();
+        let statement = stats::query_preparing(|| -> Result<_, QueryError> {
+            //TODO: this take a long time potentially; can I reuse one for all direct queries?
+            Ok(bind(self.statement()?.into())?.into_inner())
+        })?;
 
         let (result_set, stats_guard) = stats::query_execution(move || {
             statement
@@ -425,7 +430,9 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
         V: TryFromRow<C>,
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
-        let statement = bind(statement.0.into())?.into_inner();
+        let statement = stats::query_preparing(|| -> Result<_, QueryError> {
+            Ok(bind(statement.0.into())?.into_inner())
+        })?;
 
         let (result_set, stats_guard) = stats::query_execution(move || {
             statement

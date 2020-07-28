@@ -5,6 +5,7 @@ mod inner {
 
     // Note: possible race where EXECUTING and FETCHING at the same time... but it is OK for the use case
     static OPEN_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+    static QUERIES_PREPARING: AtomicU64 = AtomicU64::new(0);
     static QUERIES_EXECUTING: AtomicU64 = AtomicU64::new(0);
     static QUERIES_FETCHING: AtomicU64 = AtomicU64::new(0);
     static QUERIES_DONE: AtomicU64 = AtomicU64::new(0);
@@ -16,6 +17,14 @@ mod inner {
 
     pub(super) fn open_connections_dec() {
         assert!(OPEN_CONNECTIONS.fetch_sub(1, Ordering::Relaxed) > 0);
+    }
+
+    pub(super) fn queries_preparing_inc() {
+        QUERIES_PREPARING.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn queries_preparing_dec() {
+        assert!(QUERIES_PREPARING.fetch_sub(1, Ordering::Relaxed) > 0);
     }
 
     pub(super) fn queries_executing_inc() {
@@ -45,6 +54,7 @@ mod inner {
     #[derive(Debug)]
     pub struct Statistics {
         pub open_connections: u64,
+        pub queries_preparing: u64,
         pub queries_executing: u64,
         pub queries_fetching: u64,
         pub queries_done: u64,
@@ -53,8 +63,9 @@ mod inner {
 
     impl fmt::Display for Statistics {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "ODBC statistics: connections: open: {open_connections}, queries: executing: {queries_executing}, fetching: {queries_fetching}, done: {queries_done}, failed: {queries_failed}",
+            write!(f, "ODBC statistics: connections: open: {open_connections}, queries: preparing: {queries_preparing}, executing: {queries_executing}, fetching: {queries_fetching}, done: {queries_done}, failed: {queries_failed}",
                 open_connections = self.open_connections,
+                queries_preparing = self.queries_preparing,
                 queries_executing = self.queries_executing,
                 queries_fetching = self.queries_fetching,
                 queries_done = self.queries_done,
@@ -66,6 +77,7 @@ mod inner {
     pub fn statistics() -> Statistics {
         Statistics {
             open_connections: OPEN_CONNECTIONS.load(Ordering::Relaxed),
+            queries_preparing: QUERIES_PREPARING.load(Ordering::Relaxed),
             queries_executing: QUERIES_EXECUTING.load(Ordering::Relaxed),
             queries_fetching: QUERIES_FETCHING.load(Ordering::Relaxed),
             queries_done: QUERIES_DONE.load(Ordering::Relaxed),
@@ -94,13 +106,31 @@ impl Drop for ConnectionOpenGuard {
     }
 }
 
-struct QueryExecuting;
+pub(crate) struct QueryPreparingGuard;
 
-impl QueryExecuting {
-    fn new() -> QueryExecuting {
+impl QueryPreparingGuard {
+    pub(crate) fn new() -> QueryPreparingGuard {
+        #[cfg(feature = "statistics")]
+        inner::queries_preparing_inc();
+        QueryPreparingGuard
+    }
+}
+
+impl Drop for QueryPreparingGuard {
+    fn drop(&mut self) {
+        #[cfg(feature = "statistics")]
+        inner::queries_preparing_dec();
+    }
+}
+
+
+struct QueryExecutingGuard;
+
+impl QueryExecutingGuard {
+    fn new() -> QueryExecutingGuard {
         #[cfg(feature = "statistics")]
         inner::queries_executing_inc();
-        QueryExecuting
+        QueryExecutingGuard
     }
 
     fn failed(self) {
@@ -114,7 +144,7 @@ impl QueryExecuting {
 }
 
 #[cfg(feature = "statistics")]
-impl Drop for QueryExecuting {
+impl Drop for QueryExecutingGuard {
     fn drop(&mut self) {
         #[cfg(feature = "statistics")]
         inner::queries_executing_dec();
@@ -139,8 +169,15 @@ impl Drop for QueryFetchingGuard {
     }
 }
 
+pub(crate) fn query_preparing<O, F>(f: F) -> O where F: FnOnce() -> O {
+    let bind = QueryPreparingGuard::new();
+    let ret = f();
+    drop(bind);
+    ret
+}
+
 pub(crate) fn query_execution<O, E, F>(f: F) -> Result<(O, QueryFetchingGuard), E> where F: FnOnce() -> Result<O, E> {
-    let exec = QueryExecuting::new();
+    let exec = QueryExecutingGuard::new();
     match f() {
         Ok(o) => {
 
