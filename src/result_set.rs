@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use crate::query::{Handle, PreparedStatement};
 use crate::row::{Settings, Configuration, ColumnType, DatumAccessError, Row, TryFromRow, UnsupportedSqlDataType};
 use crate::OdbcError;
+use crate::stats;
 
 /// Error crating ResultSet iterator.
 #[derive(Debug)]
@@ -134,6 +135,7 @@ impl<'h, 'c, V, S, C: Configuration> fmt::Debug for ResultSet<'h, 'c, V, S, C> {
 
 impl<'h, 'c, V, S, C: Configuration> Drop for ResultSet<'h, 'c, V, S, C> {
     fn drop(&mut self) {
+        stats::query_done();
         // We need to make sure statement is dropped; implementing Drop forces use of drop(row_iter) if not consumed before another query
         // Should Statement not impl Drop itself?
         drop(self.statement.take())
