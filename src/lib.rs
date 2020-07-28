@@ -351,7 +351,8 @@ pub use value::*;
 mod value_row;
 pub use value_row::*;
 mod stats;
-pub use stats::stats;
+#[cfg(feature = "statistics")]
+pub use stats::statistics;
 
 pub mod odbc_type;
 pub mod thread_local;

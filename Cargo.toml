@@ -16,6 +16,8 @@ default = ["chrono"]
 test-hive = []
 test-sql-server = []
 test-monetdb = []
+# If set stats are collected and available via odbc_iter::stats()
+statistics = []
 
 [dependencies]
 odbc = "0.13.0"
