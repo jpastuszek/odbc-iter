@@ -19,6 +19,20 @@ pub fn connection_with<O>(
     connection_string: &str,
     f: impl Fn(Result<Connection, OdbcError>) -> (Option<Connection>, O),
 ) -> O {
+    initialized_connection_with(connection_string, |_| Ok(()), f)
+}
+
+/// Access to thread local connection with connection initalization.
+///
+/// Like `connection_with` but also takes `init` closure that is executed once when new connection was
+/// successfully established. This allows for execution of connection configuration queries.
+///
+/// If `init` returns and error it is passed to the second closure.
+pub fn initialized_connection_with<O>(
+    connection_string: &str,
+    init: impl Fn(&mut Connection) -> Result<(), OdbcError>,
+    f: impl Fn(Result<Connection, OdbcError>) -> (Option<Connection>, O),
+) -> O {
     DB.with(|db| {
         let connection;
 
@@ -29,8 +43,11 @@ pub fn connection_with<O>(
                 let id = std::thread::current().id();
                 debug!("[{:?}] Connecting to database: {}", id, &connection_string);
 
-                match Odbc::connect(&connection_string) {
-                    Ok(conn) => connection = conn,
+                match Odbc::connect(&connection_string)
+                    .and_then(|mut conn| init(&mut conn).map(|_| conn)) {
+                    Ok(conn) => {
+                        connection = conn;
+                    }
                     Err(err) => return f(Err(err)).1,
                 }
             }
