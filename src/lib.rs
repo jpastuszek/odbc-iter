@@ -324,6 +324,18 @@ let data: ValueRow = db.query_with_parameters("SELECT ? AS val", |q| q.bind(&utf
     .single()
     .expect("fetch data");
 ```
+
+Runtime statistics (with "statistics" feature)
+-------------
+
+If enabled, function `odbc_iter::statistics()` will provide runtime statistics that can be `Display`ed.
+
+```
+ODBC statistics: connections: open: 16, queries: executing: 0, fetching: 4, done: 11, failed: 4
+```
+
+Note that they are not strongly synchronised so things may be observed counted twice.
+
 !*/
 
 use error_context::prelude::*;
