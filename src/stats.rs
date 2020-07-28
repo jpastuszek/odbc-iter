@@ -38,6 +38,21 @@ pub fn stats() -> Stats {
     }
 }
 
+pub(crate) struct ConnectionOpenGuard;
+
+impl ConnectionOpenGuard {
+    pub(crate) fn new() -> ConnectionOpenGuard {
+        OPEN_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+        ConnectionOpenGuard
+    }
+}
+
+impl Drop for ConnectionOpenGuard {
+    fn drop(&mut self) {
+        assert!(OPEN_CONNECTIONS.fetch_sub(1, Ordering::Relaxed) > 0);
+    }
+}
+
 struct QueryExecuting;
 
 impl QueryExecuting {
@@ -50,8 +65,8 @@ impl QueryExecuting {
         QUERIES_FAILED.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn fetching(self) {
-        QUERIES_FETCHING.fetch_add(1, Ordering::Relaxed);
+    fn fetching(self) -> QueryFetchingGuard {
+        QueryFetchingGuard::new()
     }
 }
 
@@ -63,25 +78,28 @@ impl Drop for QueryExecuting {
     }
 }
 
-pub(crate) fn connection_opened() {
-    OPEN_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+pub(crate) struct QueryFetchingGuard;
+
+impl QueryFetchingGuard {
+    fn new() -> QueryFetchingGuard {
+        QUERIES_FETCHING.fetch_add(1, Ordering::Relaxed);
+        QueryFetchingGuard
+    }
 }
 
-pub(crate) fn connection_closed() {
-    assert!(OPEN_CONNECTIONS.fetch_sub(1, Ordering::Relaxed) > 0);
+impl Drop for QueryFetchingGuard {
+    fn drop(&mut self) {
+        assert!(QUERIES_FETCHING.fetch_sub(1, Ordering::Relaxed) > 0);
+        QUERIES_DONE.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
-pub(crate) fn query_done() {
-    assert!(QUERIES_FETCHING.fetch_sub(1, Ordering::Relaxed) > 0);
-    QUERIES_DONE.fetch_add(1, Ordering::Relaxed);
-}
-
-pub(crate) fn query_execution<F, O, E>(f: F) -> Result<O, E> where F: FnOnce() -> Result<O, E> {
+pub(crate) fn query_execution<O, E, F>(f: F) -> Result<(O, QueryFetchingGuard), E> where F: FnOnce() -> Result<O, E> {
     let exec = QueryExecuting::new();
     match f() {
         Ok(o) => {
-            exec.fetching();
-            Ok(o)
+
+            Ok((o, exec.fetching()))
         }
         Err(e) => {
             exec.failed();

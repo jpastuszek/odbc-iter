@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use crate::result_set::{DataAccessError, ResultSet, ResultSetError};
 use crate::row::{Settings, Configuration, DefaultConfiguration, ColumnType, UnsupportedSqlDataType, TryFromRow};
 use crate::{Odbc, OdbcError};
-use crate::stats;
+use crate::stats::{self, ConnectionOpenGuard};
 
 /// Errors related to execution of queries.
 ///
@@ -208,6 +208,7 @@ impl<'h> PreparedStatement<'h> {
 pub struct Connection {
     connection: OdbcConnection<'static>,
     settings: Settings,
+    _stats_guard: ConnectionOpenGuard,
 }
 
 /// Assuming drivers support sending Connection between threads.
@@ -265,18 +266,12 @@ impl Connection {
             .wrap_error_while("connecting to database")
             .map_err(Into::into)
             .map(|connection| {
-                stats::connection_opened();
                 Connection {
                     connection,
                     settings,
+                    _stats_guard: ConnectionOpenGuard::new(),
                 }
             })
-    }
-}
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        stats::connection_closed();
     }
 }
 
@@ -336,22 +331,23 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
     {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
-        let result_set: ResultSetState<'c, 'c, Allocated> = ResultSetState::Data(
-            stats::query_execution(move || {
-                statement
-                    .tables_str(
-                        catalog,
-                        schema.unwrap_or(""),
-                        table.unwrap_or(""),
-                        table_type.unwrap_or(""),
-                    )
-                    .wrap_error_while("executing direct statement")
-            })?
-        );
+
+        let (result_set, stats_guard): (ResultSetState<'c, 'c, Allocated>, _) = stats::query_execution(move || {
+            statement
+                .tables_str(
+                    catalog,
+                    schema.unwrap_or(""),
+                    table.unwrap_or(""),
+                    table_type.unwrap_or(""),
+                )
+                .wrap_error_while("executing direct statement")
+                .map(ResultSetState::Data)
+        })?;
 
         Ok(ResultSet::from_result(
             self,
             result_set,
+            stats_guard,
             &self.connection.settings,
             self.configuration.clone(),
         )?)
@@ -393,13 +389,16 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
 
         let statement = bind(self.statement()?.into())?.into_inner();
 
+        let (result_set, stats_guard) = stats::query_execution(move || {
+            statement
+                .exec_direct(query)
+                .wrap_error_while("executing direct statement")
+        })?;
+
         Ok(ResultSet::from_result(
             self,
-            stats::query_execution(move || {
-                statement
-                    .exec_direct(query)
-                    .wrap_error_while("executing direct statement")
-            })?,
+            result_set,
+            stats_guard,
             &self.connection.settings,
             self.configuration.clone(),
         )?)
@@ -427,13 +426,17 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
         F: FnOnce(Binder<'c, 'c, Prepared>) -> Result<Binder<'c, 't, Prepared>, BindError>,
     {
         let statement = bind(statement.0.into())?.into_inner();
+
+        let (result_set, stats_guard) = stats::query_execution(move || {
+            statement
+                .execute()
+                .wrap_error_while("executing statement")
+        })?;
+
         Ok(ResultSet::from_result(
             self,
-            stats::query_execution(move || {
-                statement
-                    .execute()
-                    .wrap_error_while("executing statement")
-            })?,
+            result_set,
+            stats_guard,
             &self.connection.settings,
             self.configuration.clone(),
         )?)

@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use crate::query::{Handle, PreparedStatement};
 use crate::row::{Settings, Configuration, ColumnType, DatumAccessError, Row, TryFromRow, UnsupportedSqlDataType};
 use crate::OdbcError;
-use crate::stats;
+use crate::stats::QueryFetchingGuard;
 
 /// Error crating ResultSet iterator.
 #[derive(Debug)]
@@ -120,6 +120,7 @@ pub struct ResultSet<'h, 'c, V, S, C: Configuration> {
     settings: &'c Settings,
     configuration: C,
     phantom: PhantomData<&'h V>,
+    _stats_guard: QueryFetchingGuard,
 }
 
 impl<'h, 'c, V, S, C: Configuration> fmt::Debug for ResultSet<'h, 'c, V, S, C> {
@@ -135,7 +136,6 @@ impl<'h, 'c, V, S, C: Configuration> fmt::Debug for ResultSet<'h, 'c, V, S, C> {
 
 impl<'h, 'c, V, S, C: Configuration> Drop for ResultSet<'h, 'c, V, S, C> {
     fn drop(&mut self) {
-        stats::query_done();
         // We need to make sure statement is dropped; implementing Drop forces use of drop(row_iter) if not consumed before another query
         // Should Statement not impl Drop itself?
         drop(self.statement.take())
@@ -154,6 +154,7 @@ where
     pub(crate) fn from_result(
         _handle: &'h Handle<'c, C>,
         result: ResultSetState<'c, '_, S>,
+        stats_guard: QueryFetchingGuard,
         settings: &'c Settings,
         configuration: C,
     ) -> Result<ResultSet<'h, 'c, V, S, C>, ResultSetError> {
@@ -219,6 +220,7 @@ where
             phantom: PhantomData,
             settings,
             configuration,
+            _stats_guard: stats_guard,
         })
     }
 
