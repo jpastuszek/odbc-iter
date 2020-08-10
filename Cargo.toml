@@ -20,7 +20,9 @@ test-monetdb = []
 statistics = []
 
 [dependencies]
-odbc = "0.13.0"
+#odbc = "0.13.0"
+#odbc = { path = "../odbc-rs" }
+odbc = { git = "https://github.com/jpastuszek/odbc-rs", branch = "ac" }
 regex = "1.1.0"
 lazy_static = "1.2.0"
 log = "0.4.6"

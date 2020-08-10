@@ -1,6 +1,6 @@
 use error_context::prelude::*;
 use log::{debug, log_enabled, trace};
-use odbc::{ColumnDescriptor, DiagnosticRecord, Executed, Prepared, ResultSetState};
+use odbc::{ColumnDescriptor, DiagnosticRecord, Executed, Prepared, ResultSetState, AutocommitMode};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -151,8 +151,8 @@ impl<'h, 'c: 'h, V, S, C: Configuration> ResultSet<'h, 'c, V, S, C>
 where
     V: TryFromRow<C>,
 {
-    pub(crate) fn from_result(
-        _handle: &'h Handle<'c, C>,
+    pub(crate) fn from_result<AC: AutocommitMode>(
+        _handle: &'h Handle<'c, AC, C>,
         result: ResultSetState<'c, '_, S>,
         stats_guard: QueryFetchingGuard,
         settings: &'c Settings,
