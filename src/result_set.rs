@@ -295,7 +295,7 @@ where
                 let rows = statement.affected_row_count().wrap_error_while(
                     "getting affected row count from prepared statemnt with result",
                 )?;
-                Ok(if rows >= 0 { Some(rows) } else { None })
+                Ok(if rows >= 0 { Some(rows as i64) } else { None })
             }
             ExecutedStatement::NoResult(_) => Ok(None),
         }
@@ -330,7 +330,7 @@ where
                 )?
             }
         };
-        Ok(if rows >= 0 { Some(rows) } else { None })
+        Ok(if rows >= 0 { Some(rows as i64) } else { None })
     }
 }
 
