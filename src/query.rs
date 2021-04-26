@@ -4,7 +4,6 @@ use odbc::{
     Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord, Executed,
     NoResult, OdbcType, Prepared, ResultSetState, Statement,
 };
-use odbc::{AutocommitMode, AutocommitOn, AutocommitOff};
 use lazy_static::lazy_static;
 use std::convert::TryFrom;
 use std::error::Error;
@@ -206,20 +205,20 @@ impl<'h> PreparedStatement<'h> {
 }
 
 /// Database connection.
-pub struct Connection<AC: AutocommitMode> {
-    connection: OdbcConnection<'static, AC>,
+pub struct Connection {
+    connection: OdbcConnection<'static>,
     settings: Settings,
     _stats_guard: ConnectionOpenGuard,
 }
 
 /// Assuming drivers support sending Connection between threads.
-unsafe impl<AC: AutocommitMode> Send for Connection<AC> {}
+unsafe impl Send for Connection {}
 
 lazy_static! {
     static ref CONNECT_MUTEX: Mutex<()> = Mutex::new(());
 }
 
-impl<AC: AutocommitMode> fmt::Debug for Connection<AC> {
+impl fmt::Debug for Connection {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Connection")
             .field("settings", &self.settings)
@@ -227,16 +226,16 @@ impl<AC: AutocommitMode> fmt::Debug for Connection<AC> {
     }
 }
 
-impl Connection<AutocommitOn> {
+impl Connection {
     /// Connect to database using connection string with default configuration options.
     /// This implementation will synchronize driver connect calls.
-    pub fn new(odbc: &'static Odbc, connection_string: &str) -> Result<Connection<AutocommitOn>, OdbcError> {
+    pub fn new(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
         Self::with_settings(odbc, connection_string, Default::default())
     }
 
     /// Connect to database using connection string with default configuration options.
     /// Assume that driver connect call is thread safe.
-    pub unsafe fn new_concurrent(odbc: &'static Odbc, connection_string: &str) -> Result<Connection<AutocommitOn>, OdbcError> {
+    pub unsafe fn new_concurrent(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
         Self::with_settings_concurrent(odbc, connection_string, Default::default())
     }
 
@@ -246,7 +245,7 @@ impl Connection<AutocommitOn> {
         odbc: &'static Odbc,
         connection_string: &str,
         settings: Settings,
-    ) -> Result<Connection<AutocommitOn>, OdbcError> {
+    ) -> Result<Connection, OdbcError> {
         unsafe {
             let guard = CONNECT_MUTEX.lock().expect("Connection Mutex is poisoned!");
             let res = Self::with_settings_concurrent(odbc, connection_string, settings);
@@ -261,7 +260,7 @@ impl Connection<AutocommitOn> {
         odbc: &'static Odbc,
         connection_string: &str,
         settings: Settings,
-    ) -> Result<Connection<AutocommitOn>, OdbcError> {
+    ) -> Result<Connection, OdbcError> {
         odbc.environment
             .connect_with_connection_string(connection_string)
             .wrap_error_while("connecting to database")
@@ -283,20 +282,20 @@ impl Connection<AutocommitOn> {
 /// Allocated `PreparedStatement` objects reference `Connection` directly so `Handle` can be still used to
 /// query or allocate more `PreparedStatement` objects.
 #[derive(Debug)]
-pub struct Handle<'c, AC: AutocommitMode, C: Configuration = DefaultConfiguration> {
-    connection: &'c Connection<AC>,
+pub struct Handle<'c, C: Configuration = DefaultConfiguration> {
+    connection: &'c Connection,
     configuration: C,
 }
 
-impl<'c: 'c, AC: AutocommitMode> Connection<AC> {
-    pub fn handle(&'c mut self) -> Handle<'c, AC, DefaultConfiguration> {
+impl<'c: 'c> Connection {
+    pub fn handle(&'c mut self) -> Handle<'c, DefaultConfiguration> {
         Handle {
             connection: self,
             configuration: DefaultConfiguration,
         }
     }
 
-    pub fn handle_with_configuration<C: Configuration>(&'c mut self, configuration: C) -> Handle<'c, AC, C> {
+    pub fn handle_with_configuration<C: Configuration>(&'c mut self, configuration: C) -> Handle<'c, C> {
         Handle {
             connection: self,
             configuration,
@@ -304,8 +303,8 @@ impl<'c: 'c, AC: AutocommitMode> Connection<AC> {
     }
 }
 
-impl<'h, 'c: 'h, AC: AutocommitMode, C: Configuration> Handle<'c, AC, C> {
-    pub fn with_configuration<CNew: Configuration>(&mut self, configuration: CNew) -> Handle<'c, AC, CNew> {
+impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
+    pub fn with_configuration<CNew: Configuration>(&mut self, configuration: CNew) -> Handle<'c, CNew> {
         Handle {
             connection: self.connection,
             configuration,
@@ -472,7 +471,7 @@ impl<'h, 'c: 'h, AC: AutocommitMode, C: Configuration> Handle<'c, AC, C> {
     /// If function returns Err the transaction will be rolled back otherwise committed.
     pub fn in_transaction<O, E>(
         &mut self,
-        f: impl FnOnce(&mut Handle<'c, AC, C>) -> Result<O, E>,
+        f: impl FnOnce(&mut Handle<'c, C>) -> Result<O, E>,
     ) -> Result<Result<O, E>, QueryError> {
         self.start_transaction()?;
         Ok(match f(self) {
@@ -491,7 +490,7 @@ impl<'h, 'c: 'h, AC: AutocommitMode, C: Configuration> Handle<'c, AC, C> {
     /// This is useful when you need to do changes with auto-commit (for example change schema) while in open transaction already.
     pub fn outside_of_transaction<O>(
         &mut self,
-        f: impl FnOnce(&mut Handle<'c, AC, C>) -> O,
+        f: impl FnOnce(&mut Handle<'c, C>) -> O,
     ) -> Result<O, QueryError> {
         self.commit()?;
         let ret = f(self);

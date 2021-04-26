@@ -330,7 +330,7 @@ Runtime statistics (with "statistics" feature)
 
 If enabled, function `odbc_iter::statistics()` will provide runtime statistics that can be `Display`ed.
 
-```txt
+```
 ODBC statistics: connections: open: 5, queries: preparing: 2, executing: 1, fetching: 2, done: 5, failed: 0
 ```
 
@@ -370,7 +370,6 @@ pub mod odbc_type;
 pub mod thread_local;
 
 pub use odbc_type::StringUtf16;
-pub use odbc::{AutocommitMode, AutocommitOn, AutocommitOff};
 
 /// ODBC library initialization and connection errors.
 #[derive(Debug)]
@@ -471,13 +470,13 @@ impl Odbc {
 
     /// Connect to database using connection string with default configuration options.
     /// This implementation will synchronize driver connect calls.
-    pub fn connect(connection_string: &str) -> Result<Connection<AutocommitOn>, OdbcError> {
+    pub fn connect(connection_string: &str) -> Result<Connection, OdbcError> {
         Connection::new(&ODBC, connection_string)
     }
 
     /// Connect to database using connection string with default configuration options.
     /// Assume that driver connect call is thread safe.
-    pub unsafe fn connect_concurrent(connection_string: &str) -> Result<Connection<AutocommitOn>, OdbcError> {
+    pub unsafe fn connect_concurrent(connection_string: &str) -> Result<Connection, OdbcError> {
         Connection::new_concurrent(&ODBC, connection_string)
     }
 
@@ -486,7 +485,7 @@ impl Odbc {
     pub fn connect_with_settings(
         connection_string: &str,
         settings: Settings,
-    ) -> Result<Connection<AutocommitOn>, OdbcError> {
+    ) -> Result<Connection, OdbcError> {
         Connection::with_settings(&ODBC, connection_string, settings)
     }
 
@@ -495,7 +494,7 @@ impl Odbc {
     pub unsafe fn connect_with_settings_concurrent(
         connection_string: &str,
         settings: Settings,
-    ) -> Result<Connection<AutocommitOn>, OdbcError> {
+    ) -> Result<Connection, OdbcError> {
         Connection::with_settings_concurrent(&ODBC, connection_string, settings)
     }
 }
@@ -545,12 +544,12 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-sql-server")]
-    pub fn connect_sql_server() -> Connection<AutocommitOn> {
+    pub fn connect_sql_server() -> Connection {
         Odbc::connect(sql_server_connection_string().as_str()).expect("connect to SQL Server")
     }
 
     #[cfg(feature = "test-sql-server")]
-    pub fn connect_sql_server_with_settings(settings: Settings) -> Connection<AutocommitOn> {
+    pub fn connect_sql_server_with_settings(settings: Settings) -> Connection {
         Odbc::connect_with_settings(sql_server_connection_string().as_str(), settings)
             .expect("connect to SQL ServerMonetDB")
     }
@@ -561,14 +560,14 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-hive")]
-    pub fn connect_hive() -> Connection<AutocommitOn> {
+    pub fn connect_hive() -> Connection {
         unsafe {
             Odbc::connect_concurrent(hive_connection_string().as_str()).expect("connect to Hive")
         }
     }
 
     #[cfg(feature = "test-hive")]
-    pub fn connect_hive_with_settings(settings: Settings) -> Connection<AutocommitOn> {
+    pub fn connect_hive_with_settings(settings: Settings) -> Connection {
         unsafe {
             Odbc::connect_with_settings_concurrent(hive_connection_string().as_str(), settings)
                 .expect("connect to Hive")
@@ -581,14 +580,14 @@ pub mod tests {
     }
 
     #[cfg(feature = "test-monetdb")]
-    pub fn connect_monetdb() -> Connection<AutocommitOn> {
+    pub fn connect_monetdb() -> Connection {
         unsafe {
             Odbc::connect_concurrent(monetdb_connection_string().as_str()).expect("connect to MonetDB")
         }
     }
 
     #[cfg(feature = "test-monetdb")]
-    pub fn connect_monetdb_with_settings(settings: Settings) -> Connection<AutocommitOn> {
+    pub fn connect_monetdb_with_settings(settings: Settings) -> Connection {
         unsafe {
             Odbc::connect_with_settings_concurrent(monetdb_connection_string().as_str(), settings)
                 .expect("connect to MonetDB")

@@ -3,7 +3,7 @@
 use std::fmt;
 
 // Allow for custom type implementation
-pub use odbc::{ffi, OdbcType, EncodedValue, DB_ENCODING};
+pub use odbc::{ffi, OdbcType};
 
 #[cfg(feature = "chrono")]
 mod sql_timestamp {
@@ -73,13 +73,8 @@ mod sql_timestamp {
         fn column_size(&self) -> ffi::SQLULEN {
             self.0.column_size()
         }
-
         fn value_ptr(&self) -> ffi::SQLPOINTER {
             self.0.value_ptr()
-        }
-
-        fn encoded_value(&self) -> EncodedValue {
-            EncodedValue::new(None)
         }
     }
 
@@ -154,10 +149,6 @@ unsafe impl<'s> OdbcType<'s> for CowString<'s> {
     fn value_ptr(&self) -> ffi::SQLPOINTER {
         self.0.as_ref().value_ptr()
     }
-
-    fn encoded_value(&self) -> EncodedValue {
-        EncodedValue::new(Some(unsafe { DB_ENCODING }.encode(&self.0).0.to_vec()))
-    }
 }
 
 /// UTF-16 encoded string that can be bound as statement parameter.
@@ -200,12 +191,6 @@ unsafe impl<'a> OdbcType<'a> for StringUtf16 {
 
     fn value_ptr(&self) -> ffi::SQLPOINTER {
         self.0.as_ptr() as *const &[u16] as ffi::SQLPOINTER
-    }
-
-    fn encoded_value(&self) -> EncodedValue {
-        //TODO: check if DB_ENCODING is UTF-16 so we can avoid transcoding
-        let utf8 = String::from_utf16(self.0.as_slice()).expect("invalid UTF-16 encoding");
-        EncodedValue::new(Some(unsafe { DB_ENCODING }.encode(&utf8).0.to_vec()))
     }
 }
 

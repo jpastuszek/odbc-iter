@@ -1,12 +1,11 @@
 use log::debug;
 use std::cell::RefCell;
-use odbc::{AutocommitMode, AutocommitOn, AutocommitOff};
 
 use crate::query::Connection;
 use crate::{Odbc, OdbcError};
 
 thread_local! {
-    static DB: RefCell<Option<Connection<AutocommitOn>>> = RefCell::new(None);
+    static DB: RefCell<Option<Connection>> = RefCell::new(None);
 }
 
 /// Access to thread local connection.
@@ -19,7 +18,7 @@ thread_local! {
 pub fn connection_with<O, F>(
     connection_string: &str,
     f: F
-) -> O where F: Fn(Result<Connection<AutocommitOn>, OdbcError>) -> (Option<Connection<AutocommitOn>>, O) {
+) -> O where F: Fn(Result<Connection, OdbcError>) -> (Option<Connection>, O) {
     initialized_connection_with(connection_string, |_| Ok(()), f)
 }
 
@@ -33,7 +32,7 @@ pub fn initialized_connection_with<O, E, I, F>(
     connection_string: &str,
     init: I,
     f: F
-) -> O where E: From<OdbcError>, I: Fn(&mut Connection<AutocommitOn>) -> Result<(), E>, F: Fn(Result<Connection<AutocommitOn>, E>) -> (Option<Connection<AutocommitOn>>, O) {
+) -> O where E: From<OdbcError>, I: Fn(&mut Connection) -> Result<(), E>, F: Fn(Result<Connection, E>) -> (Option<Connection>, O) {
     DB.with(|db| {
         let connection;
 
