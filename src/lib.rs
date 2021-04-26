@@ -330,9 +330,8 @@ Runtime statistics (with "statistics" feature)
 
 If enabled, function `odbc_iter::statistics()` will provide runtime statistics that can be `Display`ed.
 
-```
-ODBC statistics: connections: open: 5, queries: preparing: 2, executing: 1, fetching: 2, done: 5, failed: 0
-```
+
+`ODBC statistics: connections: open: 5, queries: preparing: 2, executing: 1, fetching: 2, done: 5, failed: 0`
 
 Note that they are not strongly synchronised so things may be observed counted twice.
 
@@ -432,7 +431,7 @@ impl fmt::Debug for Odbc {
 
 impl Odbc {
     fn new() -> Result<Odbc, OdbcError> {
-        if ODBC_INIT.compare_and_swap(false, true, atomic::Ordering::SeqCst) {
+        if ODBC_INIT.compare_exchange(false, true, atomic::Ordering::SeqCst, atomic::Ordering::SeqCst).is_err() {
             panic!("ODBC environment already initialised");
         }
 
