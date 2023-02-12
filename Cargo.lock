@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "odbc-iter"
-version = "0.2.7-alpha.0"
+version = "0.2.7"
 dependencies = [
  "assert_matches",
  "chrono",
