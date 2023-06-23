@@ -570,6 +570,39 @@ pub trait TryFromColumn<C: Configuration>: Sized {
 /// Also this trait implementation allows to convert single column rows to types implementing `TryFromColumn`.
 ///
 /// This trait can be implemented for custom objects. This will enable them to be queried directly from database as `Item` of `ResultSet` iterator.
+/// # Example implementation
+/// ```
+/// // The fields in the struct need to implement ['OdbcType'] or ['TryFromColumn']
+/// struct ExampleStruct {
+///    id: i64,  
+///    value: String,
+/// }
+///
+///
+/// impl TryFromRow<DefaultConfiguration> for ExampleStruct {
+///     type Error = ExampleError;
+///
+///     fn try_from_row<'r, 's, 'c, S>(
+///         row: odbc_iter::Row<'r, 's, 'c, S, DefaultConfiguration>,
+///     ) -> Result<Self, Self::Error> {
+///    
+///         //`shift_column` gets the next column in order. Check your SQL query to ensure the order..
+///         let column = row.shift_column().unwrap();
+///
+///         // Convert the column into a Rust type. This type must implement `TryFromColumn`.
+///         // Most standard rust datatypes are [`OdbcType`], which also implements `TryFromColumn`
+///         let id = i64::try_from_column(column).unwrap();
+///
+///         let column = row.shift_column().unwrap();
+///         let value = String::try_from_column(column).unwrap();
+///
+///         Ok(ExampleStruct {
+///             id,
+///             value,
+///         })
+///     }
+/// }
+/// ```
 pub trait TryFromRow<C: Configuration>: Sized {
     type Error: Error + 'static;
     /// Given `ColumnType` convert from `Row` to other type of value representing table row.

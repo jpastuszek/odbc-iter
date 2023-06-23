@@ -67,6 +67,43 @@ for row in db.query::<ValueRow>("SELECT 'hello world', 24 UNION SELECT 'foo bar'
 // Prints:
 // [Some(String("hello world")), Some(Tinyint(24))]
 // [Some(String("foo bar")), Some(Tinyint(32))]
+
+// Implementing TryFromRow on a struct allows it to be used directly.
+struct ExampleStruct {
+    id: i64,
+    value: String,
+}
+
+impl TryFromRow<DefaultConfiguration> for ExampleStruct {
+     type Error = CustomError;
+
+     fn try_from_row<'r, 's, 'c, S>(
+         row: odbc_iter::Row<'r, 's, 'c, S, DefaultConfiguration>,
+     ) -> Result<Self, Self::Error> {
+
+         let column = row.shift_column().unwrap();
+         let id = i64::try_from_column(column).unwrap();
+
+         let column = row.shift_column().unwrap();
+         let value = String::try_from_column(column).unwrap();
+
+         Ok(ExampleStruct {
+             id,
+             value,
+         })
+     }
+ }
+
+for row in db.query::<ExampleStruct>("SELECT 24, 'hello world' UNION SELECT 32, 'foo bar')
+    .expect("failed to run query") {
+    let data = row.expect("failed to fetch row"));
+    println!("id: {}, value: {}", data.id, data.value);
+}
+
+// Prints:
+// id: 24, value: hello world
+// id: 32, value: foo bar
+
 ```
 
 [crates.io]: https://crates.io/crates/odbc-iter
