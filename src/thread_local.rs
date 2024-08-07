@@ -15,10 +15,10 @@ thread_local! {
 /// If there was an error during connection establishment it is provided to the closure. Next call will attempt to connect again and a new error may be provided.
 ///
 /// `connection_string` is used only when making new `Connection` object initially, after error or after old `Connection` object was dropped.
-pub fn connection_with<O, F>(
-    connection_string: &str,
-    f: F
-) -> O where F: Fn(Result<Connection, OdbcError>) -> (Option<Connection>, O) {
+pub fn connection_with<O, F>(connection_string: &str, f: F) -> O
+where
+    F: Fn(Result<Connection, OdbcError>) -> (Option<Connection>, O),
+{
     initialized_connection_with(connection_string, |_| Ok(()), f)
 }
 
@@ -28,11 +28,12 @@ pub fn connection_with<O, F>(
 /// successfully established. This allows for execution of connection configuration queries.
 ///
 /// If `init` returns an error it is passed to the second closure and the connection will be dropped.
-pub fn initialized_connection_with<O, E, I, F>(
-    connection_string: &str,
-    init: I,
-    f: F
-) -> O where E: From<OdbcError>, I: Fn(&mut Connection) -> Result<(), E>, F: Fn(Result<Connection, E>) -> (Option<Connection>, O) {
+pub fn initialized_connection_with<O, E, I, F>(connection_string: &str, init: I, f: F) -> O
+where
+    E: From<OdbcError>,
+    I: Fn(&mut Connection) -> Result<(), E>,
+    F: Fn(Result<Connection, E>) -> (Option<Connection>, O),
+{
     DB.with(|db| {
         let connection;
 
@@ -45,7 +46,8 @@ pub fn initialized_connection_with<O, E, I, F>(
 
                 match Odbc::connect(&connection_string)
                     .map_err(Into::into)
-                    .and_then(|mut conn| init(&mut conn).map(|_| conn)) {
+                    .and_then(|mut conn| init(&mut conn).map(|_| conn))
+                {
                     Ok(conn) => {
                         connection = conn;
                     }

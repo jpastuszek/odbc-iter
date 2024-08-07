@@ -1,4 +1,4 @@
-use crate::row::{Configuration, DatumType, Column, TryFromColumn, ColumnConvertError};
+use crate::row::{Column, ColumnConvertError, Configuration, DatumType, TryFromColumn};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::{Infallible, TryInto};
 use std::error::Error;
@@ -151,19 +151,22 @@ impl Value {
 
     #[cfg(feature = "chrono")]
     pub fn to_naive_date_time(&self) -> Option<NaiveDateTime> {
-        self.as_timestamp().map(|value| {
-            NaiveDate::from_ymd(
-                i32::from(value.year),
-                u32::from(value.month),
-                u32::from(value.day),
-            )
-            .and_hms_nano(
-                u32::from(value.hour),
-                u32::from(value.minute),
-                u32::from(value.second),
-                value.fraction,
-            )
-        })
+        self.as_timestamp()
+            .iter()
+            .flat_map(|value| {
+                NaiveDate::from_ymd_opt(
+                    i32::from(value.year),
+                    u32::from(value.month),
+                    u32::from(value.day),
+                )?
+                .and_hms_nano_opt(
+                    u32::from(value.hour),
+                    u32::from(value.minute),
+                    u32::from(value.second),
+                    value.fraction,
+                )
+            })
+            .next()
     }
 
     pub fn as_date(&self) -> Option<&SqlDate> {
@@ -182,13 +185,16 @@ impl Value {
 
     #[cfg(feature = "chrono")]
     pub fn to_naive_date(&self) -> Option<NaiveDate> {
-        self.as_date().map(|value| {
-            NaiveDate::from_ymd(
-                i32::from(value.year),
-                u32::from(value.month),
-                u32::from(value.day),
-            )
-        })
+        self.as_date()
+            .iter()
+            .flat_map(|value| {
+                NaiveDate::from_ymd_opt(
+                    i32::from(value.year),
+                    u32::from(value.month),
+                    u32::from(value.day),
+                )
+            })
+            .next()
     }
 
     pub fn as_time(&self) -> Option<&SqlSsTime2> {
@@ -207,14 +213,17 @@ impl Value {
 
     #[cfg(feature = "chrono")]
     pub fn to_naive_time(&self) -> Option<NaiveTime> {
-        self.as_time().map(|value| {
-            NaiveTime::from_hms_nano(
-                u32::from(value.hour),
-                u32::from(value.minute),
-                u32::from(value.second),
-                value.fraction,
-            )
-        })
+        self.as_time()
+            .iter()
+            .flat_map(|value| {
+                NaiveTime::from_hms_nano_opt(
+                    u32::from(value.hour),
+                    u32::from(value.minute),
+                    u32::from(value.second),
+                    value.fraction,
+                )
+            })
+            .next()
     }
 
     #[cfg(feature = "serde_json")]
@@ -396,7 +405,9 @@ impl From<Json> for Value {
 impl<C: Configuration> TryFromColumn<C> for Option<Value> {
     type Error = ColumnConvertError;
 
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(
+        column: Column<'i, 's, 'c, S, C>,
+    ) -> Result<Self, Self::Error> {
         Ok(match column.column_type.datum_type {
             DatumType::Bit => column.into_bool()?.map(Value::from),
             DatumType::Tinyint => column.into_i8()?.map(Value::from),
@@ -420,7 +431,9 @@ impl<C: Configuration> TryFromColumn<C> for Option<Value> {
 impl<C: Configuration> TryFromColumn<C> for Value {
     type Error = ColumnConvertError;
 
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(
+        column: Column<'i, 's, 'c, S, C>,
+    ) -> Result<Self, Self::Error> {
         let value: Option<Value> = TryFromColumn::try_from_column(column)?;
         value.ok_or_else(|| ColumnConvertError::UnexpectedNullValue("Value"))
     }
@@ -757,15 +770,20 @@ mod ser {
             use std::str::FromStr;
 
             assert_eq!(
-                &serde_json::to_string(&Value::Decimal(Decimal::from_str("-1.1").unwrap())).unwrap(),
+                &serde_json::to_string(&Value::Decimal(Decimal::from_str("-1.1").unwrap()))
+                    .unwrap(),
                 "\"-1.1\""
             );
             assert_eq!(
-                &serde_json::to_string(&Value::Decimal(Decimal::from_str("33.22").unwrap())).unwrap(),
+                &serde_json::to_string(&Value::Decimal(Decimal::from_str("33.22").unwrap()))
+                    .unwrap(),
                 "\"33.22\""
             );
             assert_eq!(
-                &serde_json::to_string(&Value::Decimal(Decimal::from_str("10.9231213232423424323423234234").unwrap())).unwrap(),
+                &serde_json::to_string(&Value::Decimal(
+                    Decimal::from_str("10.9231213232423424323423234234").unwrap()
+                ))
+                .unwrap(),
                 "\"10.923121323242342432342323423\""
             );
         }
@@ -775,14 +793,20 @@ mod ser {
         fn serialize_value_timestamp() {
             assert_eq!(
                 &serde_json::to_string(&Value::from(
-                    NaiveDate::from_ymd(2016, 7, 8).and_hms_milli(9, 10, 11, 23)
+                    NaiveDate::from_ymd_opt(2016, 7, 8)
+                        .unwrap()
+                        .and_hms_milli_opt(9, 10, 11, 23)
+                        .unwrap()
                 ))
                 .unwrap(),
                 "\"2016-07-08 09:10:11.023\""
             );
             assert_eq!(
                 &serde_json::to_string(&Value::from(
-                    NaiveDate::from_ymd(2016, 12, 8).and_hms_milli(19, 1, 1, 0)
+                    NaiveDate::from_ymd_opt(2016, 12, 8)
+                        .unwrap()
+                        .and_hms_milli_opt(19, 1, 1, 0)
+                        .unwrap()
                 ))
                 .unwrap(),
                 "\"2016-12-08 19:01:01.000\""
@@ -793,11 +817,13 @@ mod ser {
         #[test]
         fn serialize_value_date() {
             assert_eq!(
-                &serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 7, 8))).unwrap(),
+                &serde_json::to_string(&Value::from(NaiveDate::from_ymd_opt(2016, 7, 8).unwrap()))
+                    .unwrap(),
                 "\"2016-07-08\""
             );
             assert_eq!(
-                &serde_json::to_string(&Value::from(NaiveDate::from_ymd(2016, 12, 8))).unwrap(),
+                &serde_json::to_string(&Value::from(NaiveDate::from_ymd_opt(2016, 12, 8).unwrap()))
+                    .unwrap(),
                 "\"2016-12-08\""
             );
         }
@@ -806,13 +832,17 @@ mod ser {
         #[test]
         fn serialize_value_time() {
             assert_eq!(
-                &serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(9, 10, 11, 23)))
-                    .unwrap(),
+                &serde_json::to_string(&Value::from(
+                    NaiveTime::from_hms_milli_opt(9, 10, 11, 23).unwrap()
+                ))
+                .unwrap(),
                 "\"09:10:11.023\""
             );
             assert_eq!(
-                &serde_json::to_string(&Value::from(NaiveTime::from_hms_milli(19, 1, 1, 0)))
-                    .unwrap(),
+                &serde_json::to_string(&Value::from(
+                    NaiveTime::from_hms_milli_opt(19, 1, 1, 0).unwrap()
+                ))
+                .unwrap(),
                 "\"19:01:01.000\""
             );
         }

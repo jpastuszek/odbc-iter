@@ -1,7 +1,7 @@
 #[cfg(feature = "statistics")]
 mod inner {
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::fmt;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     // Note: possible race where EXECUTING and FETCHING at the same time... but it is OK for the use case
     static OPEN_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
@@ -11,7 +11,7 @@ mod inner {
     static QUERIES_DONE: AtomicU64 = AtomicU64::new(0);
     static QUERIES_FAILED: AtomicU64 = AtomicU64::new(0);
 
-    pub(super) fn open_connections_inc () {
+    pub(super) fn open_connections_inc() {
         OPEN_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -123,7 +123,6 @@ impl Drop for QueryPreparingGuard {
     }
 }
 
-
 struct QueryExecutingGuard;
 
 impl QueryExecutingGuard {
@@ -169,20 +168,23 @@ impl Drop for QueryFetchingGuard {
     }
 }
 
-pub(crate) fn query_preparing<O, F>(f: F) -> O where F: FnOnce() -> O {
+pub(crate) fn query_preparing<O, F>(f: F) -> O
+where
+    F: FnOnce() -> O,
+{
     let bind = QueryPreparingGuard::new();
     let ret = f();
     drop(bind);
     ret
 }
 
-pub(crate) fn query_execution<O, E, F>(f: F) -> Result<(O, QueryFetchingGuard), E> where F: FnOnce() -> Result<O, E> {
+pub(crate) fn query_execution<O, E, F>(f: F) -> Result<(O, QueryFetchingGuard), E>
+where
+    F: FnOnce() -> Result<O, E>,
+{
     let exec = QueryExecutingGuard::new();
     match f() {
-        Ok(o) => {
-
-            Ok((o, exec.fetching()))
-        }
+        Ok(o) => Ok((o, exec.fetching())),
         Err(e) => {
             exec.failed();
             Err(e)

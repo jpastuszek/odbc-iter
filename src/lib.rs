@@ -431,7 +431,15 @@ impl fmt::Debug for Odbc {
 
 impl Odbc {
     fn new() -> Result<Odbc, OdbcError> {
-        if ODBC_INIT.compare_exchange(false, true, atomic::Ordering::SeqCst, atomic::Ordering::SeqCst).is_err() {
+        if ODBC_INIT
+            .compare_exchange(
+                false,
+                true,
+                atomic::Ordering::SeqCst,
+                atomic::Ordering::SeqCst,
+            )
+            .is_err()
+        {
             panic!("ODBC environment already initialised");
         }
 
@@ -581,7 +589,8 @@ pub mod tests {
     #[cfg(feature = "test-monetdb")]
     pub fn connect_monetdb() -> Connection {
         unsafe {
-            Odbc::connect_concurrent(monetdb_connection_string().as_str()).expect("connect to MonetDB")
+            Odbc::connect_concurrent(monetdb_connection_string().as_str())
+                .expect("connect to MonetDB")
         }
     }
 
@@ -1238,7 +1247,12 @@ SELECT *;
     #[test]
     fn test_split_queries_comments2() {
         let queries = split_queries("-- TODO: add last_search_or_brochure_logentry_id\n-- TODO: DISTRIBUTE BY analytics_record_id SORT BY analytics_record_id ASC;\n-- TODO: check previous day for landing logentry detail\nSELECT '1' LEFT JOIN source_wcc.domain d ON regexp_extract(d.domain, '.*\\\\.([^\\.]+)$', 1) = c.domain AND d.snapshot_day = c.index;").collect::<Result<Vec<_>, _>>().expect("failed to parse");
-        assert_eq!(queries, [r#"SELECT '1' LEFT JOIN source_wcc.domain d ON regexp_extract(d.domain, '.*\\.([^\.]+)$', 1) = c.domain AND d.snapshot_day = c.index;"#]);
+        assert_eq!(
+            queries,
+            [
+                r#"SELECT '1' LEFT JOIN source_wcc.domain d ON regexp_extract(d.domain, '.*\\.([^\.]+)$', 1) = c.domain AND d.snapshot_day = c.index;"#
+            ]
+        );
     }
 
     #[test]

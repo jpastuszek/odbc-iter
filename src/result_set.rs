@@ -7,9 +7,11 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use crate::query::{Handle, PreparedStatement};
-use crate::row::{Settings, Configuration, ColumnType, DatumAccessError, Row, TryFromRow, UnsupportedSqlDataType};
-use crate::OdbcError;
+use crate::row::{
+    ColumnType, Configuration, DatumAccessError, Row, Settings, TryFromRow, UnsupportedSqlDataType,
+};
 use crate::stats::QueryFetchingGuard;
+use crate::OdbcError;
 
 /// Error crating ResultSet iterator.
 #[derive(Debug)]
@@ -370,20 +372,29 @@ where
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
-    use crate::{Odbc, TryFromRow, Configuration, ValueRow, ColumnType, Value, DatumAccessError, Row};
+    use crate::{
+        ColumnType, Configuration, DatumAccessError, Odbc, Row, TryFromRow, Value, ValueRow,
+    };
     #[allow(unused_imports)]
     use assert_matches::assert_matches;
 
     #[derive(Debug)]
+    #[allow(dead_code)]
     struct Foo {
         val: i64,
     }
 
     impl<C: Configuration> TryFromRow<C> for Foo {
         type Error = DatumAccessError;
-        fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+        fn try_from_row<'r, 's, 'c, S>(
+            mut row: Row<'r, 's, 'c, S, C>,
+        ) -> Result<Self, Self::Error> {
             Ok(Foo {
-                val: row.shift_column().expect("column").into_i64()?.expect("value")
+                val: row
+                    .shift_column()
+                    .expect("column")
+                    .into_i64()?
+                    .expect("value"),
             })
         }
     }
@@ -684,7 +695,10 @@ mod tests {
             .single()
             .expect("fetch data");
 
-        assert_eq!(value.unwrap().pointer("/foo").unwrap().as_i64().unwrap(), 42);
+        assert_eq!(
+            value.unwrap().pointer("/foo").unwrap().as_i64().unwrap(),
+            42
+        );
 
         let value: Option<serde_json::Value> = db
             .handle()
