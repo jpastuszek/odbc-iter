@@ -7,10 +7,10 @@ use odbc::ffi::SqlDataType;
 use odbc::{ColumnDescriptor, DiagnosticRecord, OdbcType};
 use odbc::{SqlDate, SqlSsTime2, SqlTime, SqlTimestamp};
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::error::Error;
 use std::fmt;
 use std::string::FromUtf16Error;
-use std::convert::TryInto;
 
 #[cfg(feature = "rust_decimal")]
 use rust_decimal::Decimal;
@@ -366,9 +366,9 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
                 let decimal_as_string = &self.into::<String>()?;
                 match decimal_as_string {
                     Some(s) => Some(Decimal::from_str(&s).unwrap()),
-                    None => None
+                    None => None,
                 }
-            },
+            }
             queried => {
                 return Err(DatumAccessError::SqlDataTypeMismatch(SqlDataTypeMismatch {
                     requested: "DECIMAL",
@@ -383,8 +383,7 @@ impl<'r, 's, 'c, S, C: Configuration> Column<'r, 's, 'c, S, C> {
         use SqlDataType::*;
         Ok(match self.column_type.odbc_type {
             SQL_CHAR | SQL_VARCHAR | SQL_EXT_LONGVARCHAR => self.into::<String>()?,
-            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR |
-            SQL_UNKNOWN_TYPE => {
+            SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR | SQL_UNKNOWN_TYPE => {
                 if self.settings.utf_16_strings {
                     self.into::<&[u16]>()?
                         .map(|bytes| String::from_utf16(bytes).wrap_error_while("getting UTF-16 string (SQL_EXT_WCHAR | SQL_EXT_WVARCHAR | SQL_EXT_WLONGVARCHAR)"))
@@ -554,14 +553,15 @@ impl<'r, 's, 'c, S, C: Configuration> Row<'r, 's, 'c, S, C> {
     }
 }
 
-
 /// Column values can be converted to types implementing this trait.
 ///
 /// This trait is implemented for primitive Rust types, `String` and `chrono` date and time types.
 pub trait TryFromColumn<C: Configuration>: Sized {
     type Error: Error + 'static;
     /// Create `Self` from row column.
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error>;
+    fn try_from_column<'i, 's, 'c, S>(
+        column: Column<'i, 's, 'c, S, C>,
+    ) -> Result<Self, Self::Error>;
 }
 
 /// This traits allow for conversion of `Row` type representing ODBC cursor used internally by `ResultSet` iterator to any other type returned as `Item` that implements it.
@@ -573,17 +573,18 @@ pub trait TryFromColumn<C: Configuration>: Sized {
 /// # Example implementation
 /// ```
 /// // The fields in the struct need to implement ['OdbcType'] or ['TryFromColumn']
+/// use odbc_iter::TryFromColumn;
+///
 /// struct ExampleStruct {
 ///    id: i64,  
 ///    value: String,
-/// }
-///
-///
-/// impl TryFromRow<DefaultConfiguration> for ExampleStruct {
+/// }///
+/// type ExampleError = std::io::Error; // replace with your actual error type
+/// impl odbc_iter::TryFromRow<odbc_iter::DefaultConfiguration> for ExampleStruct {
 ///     type Error = ExampleError;
 ///
 ///     fn try_from_row<'r, 's, 'c, S>(
-///         row: odbc_iter::Row<'r, 's, 'c, S, DefaultConfiguration>,
+///         mut row: odbc_iter::Row<'r, 's, 'c, S, odbc_iter::DefaultConfiguration>,
 ///     ) -> Result<Self, Self::Error> {
 ///    
 ///         //`shift_column` gets the next column in order. Check your SQL query to ensure the order..
@@ -614,9 +615,7 @@ pub trait TryFromRow<C: Configuration>: Sized {
 pub enum ColumnConvertError {
     UnexpectedNullValue(&'static str),
     DatumAccessError(DatumAccessError),
-    ValueOutOfRange {
-        expected: &'static str,
-    },
+    ValueOutOfRange { expected: &'static str },
 }
 
 impl From<DatumAccessError> for ColumnConvertError {
@@ -645,8 +644,8 @@ impl Error for ColumnConvertError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             ColumnConvertError::DatumAccessError(err) => Some(err),
-            ColumnConvertError::UnexpectedNullValue(_) |
-            ColumnConvertError::ValueOutOfRange { .. } => None,
+            ColumnConvertError::UnexpectedNullValue(_)
+            | ColumnConvertError::ValueOutOfRange { .. } => None,
         }
     }
 }
@@ -655,19 +654,23 @@ macro_rules! try_from_row_not_null {
     ($t:ty) => {
         impl<C: Configuration> TryFromColumn<C> for $t {
             type Error = ColumnConvertError;
-            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+            fn try_from_column<'i, 's, 'c, S>(
+                column: Column<'i, 's, 'c, S, C>,
+            ) -> Result<Self, Self::Error> {
                 let value: Option<$t> = TryFromColumn::try_from_column(column)?;
                 value.ok_or_else(|| ColumnConvertError::UnexpectedNullValue(stringify!($t)))
             }
         }
-    }
+    };
 }
 
 macro_rules! try_from_row {
     ($t:ty, $f:ident) => {
         impl<C: Configuration> TryFromColumn<C> for Option<$t> {
             type Error = ColumnConvertError;
-            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+            fn try_from_column<'i, 's, 'c, S>(
+                column: Column<'i, 's, 'c, S, C>,
+            ) -> Result<Self, Self::Error> {
                 column.$f().map_err(Into::into)
             }
         }
@@ -680,15 +683,19 @@ macro_rules! try_from_row_unsigned {
     ($it:ty, $t:ty) => {
         impl<C: Configuration> TryFromColumn<C> for Option<$t> {
             type Error = ColumnConvertError;
-            fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+            fn try_from_column<'i, 's, 'c, S>(
+                column: Column<'i, 's, 'c, S, C>,
+            ) -> Result<Self, Self::Error> {
                 let value: Option<$it> = TryFromColumn::try_from_column(column)?;
-                value.map(|value|
-                    value
-                    .try_into()
-                    .map_err(|_| ColumnConvertError::ValueOutOfRange {
-                        expected: stringify!($t),
+                value
+                    .map(|value| {
+                        value
+                            .try_into()
+                            .map_err(|_| ColumnConvertError::ValueOutOfRange {
+                                expected: stringify!($t),
+                            })
                     })
-                ).transpose()
+                    .transpose()
             }
         }
 
@@ -715,27 +722,35 @@ try_from_row![SqlSsTime2, into_time];
 try_from_row![serde_json::Value, into_json];
 
 #[cfg(feature = "chrono")]
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
 #[cfg(feature = "chrono")]
 impl<C: Configuration> TryFromColumn<C> for Option<NaiveDateTime> {
     type Error = ColumnConvertError;
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(
+        column: Column<'i, 's, 'c, S, C>,
+    ) -> Result<Self, Self::Error> {
         let value: Option<SqlTimestamp> = TryFromColumn::try_from_column(column)?;
 
-        Ok(value.map(|value| {
-            NaiveDate::from_ymd(
-                i32::from(value.year),
-                u32::from(value.month),
-                u32::from(value.day),
-            )
-            .and_hms_nano(
-                u32::from(value.hour),
-                u32::from(value.minute),
-                u32::from(value.second),
-                value.fraction,
-            )
-        }))
+        value
+            .map(|value| {
+                NaiveDate::from_ymd_opt(
+                    i32::from(value.year),
+                    u32::from(value.month),
+                    u32::from(value.day),
+                )
+                .ok_or(ColumnConvertError::ValueOutOfRange { expected: "" })
+                .and_then(|d| {
+                    Some(d.and_hms_nano_opt(
+                        u32::from(value.hour),
+                        u32::from(value.minute),
+                        u32::from(value.second),
+                        value.fraction,
+                    ))
+                    .ok_or(ColumnConvertError::ValueOutOfRange { expected: "" })
+                })
+            })
+            .unwrap()
     }
 }
 
@@ -745,16 +760,21 @@ try_from_row_not_null!(NaiveDateTime);
 #[cfg(feature = "chrono")]
 impl<C: Configuration> TryFromColumn<C> for Option<NaiveDate> {
     type Error = ColumnConvertError;
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(
+        column: Column<'i, 's, 'c, S, C>,
+    ) -> Result<Self, Self::Error> {
         let value: Option<SqlDate> = TryFromColumn::try_from_column(column)?;
 
-        Ok(value.map(|value| {
-            NaiveDate::from_ymd(
-                i32::from(value.year),
-                u32::from(value.month),
-                u32::from(value.day),
-            )
-        }))
+        Ok(value
+            .iter()
+            .flat_map(|value| {
+                NaiveDate::from_ymd_opt(
+                    i32::from(value.year),
+                    u32::from(value.month),
+                    u32::from(value.day),
+                )
+            })
+            .next())
     }
 }
 
@@ -764,17 +784,22 @@ try_from_row_not_null!(NaiveDate);
 #[cfg(feature = "chrono")]
 impl<C: Configuration> TryFromColumn<C> for Option<NaiveTime> {
     type Error = ColumnConvertError;
-    fn try_from_column<'i, 's, 'c, S>(column: Column<'i, 's, 'c, S, C>) -> Result<Self, Self::Error> {
+    fn try_from_column<'i, 's, 'c, S>(
+        column: Column<'i, 's, 'c, S, C>,
+    ) -> Result<Self, Self::Error> {
         let value: Option<SqlSsTime2> = TryFromColumn::try_from_column(column)?;
 
-        Ok(value.map(|value| {
-            NaiveTime::from_hms_nano(
-                u32::from(value.hour),
-                u32::from(value.minute),
-                u32::from(value.second),
-                value.fraction,
-            )
-        }))
+        Ok(value
+            .iter()
+            .flat_map(|value| {
+                NaiveTime::from_hms_nano_opt(
+                    u32::from(value.hour),
+                    u32::from(value.minute),
+                    u32::from(value.second),
+                    value.fraction,
+                )
+            })
+            .next())
     }
 }
 
@@ -829,7 +854,9 @@ impl Error for RowConvertError {
 /// Unit can be used to signal that no rows of data should be produced.
 impl TryFromRow<DefaultConfiguration> for () {
     type Error = RowConvertError;
-    fn try_from_row<'r, 's, 'c, S>(_row: Row<'r, 's, 'c, S, DefaultConfiguration>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(
+        _row: Row<'r, 's, 'c, S, DefaultConfiguration>,
+    ) -> Result<Self, Self::Error> {
         Err(RowConvertError::UnexpectedValue)
     }
 }
@@ -840,7 +867,9 @@ where
     T: TryFromColumn<DefaultConfiguration>,
 {
     type Error = RowConvertError;
-    fn try_from_row<'r, 's, 'c, S>(mut row: Row<'r, 's, 'c, S, DefaultConfiguration>) -> Result<Self, Self::Error> {
+    fn try_from_row<'r, 's, 'c, S>(
+        mut row: Row<'r, 's, 'c, S, DefaultConfiguration>,
+    ) -> Result<Self, Self::Error> {
         if row.columns() != 1 {
             return Err(RowConvertError::UnexpectedNumberOfColumns {
                 expected: 1,
@@ -852,7 +881,6 @@ where
 
         TryFromColumn::try_from_column(column)
             .map_err(|e| RowConvertError::ColumnConvertError(Box::new(e)))
-
     }
 }
 

@@ -9,7 +9,7 @@ pub use odbc::{ffi, OdbcType};
 mod sql_timestamp {
     use super::*;
     use chrono::naive::{NaiveDate, NaiveDateTime};
-    use chrono::{Datelike, Timelike};
+    use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
     use odbc::SqlTimestamp;
 
     /// `SqlTimestamp` type that can be created from number of seconds since epoch as represented by `f64` value.
@@ -18,17 +18,19 @@ mod sql_timestamp {
 
     impl UnixTimestamp {
         pub fn as_naive_date_time(&self) -> NaiveDateTime {
-            NaiveDate::from_ymd(
+            NaiveDate::from_ymd_opt(
                 i32::from(self.0.year),
                 u32::from(self.0.month),
                 u32::from(self.0.day),
             )
-            .and_hms_nano(
+            .unwrap()
+            .and_hms_nano_opt(
                 u32::from(self.0.hour),
                 u32::from(self.0.minute),
                 u32::from(self.0.second),
                 self.0.fraction,
             )
+            .unwrap()
         }
 
         pub fn into_inner(self) -> SqlTimestamp {
@@ -38,11 +40,27 @@ mod sql_timestamp {
 
     impl From<f64> for UnixTimestamp {
         fn from(ts: f64) -> UnixTimestamp {
-            let ts =
-                NaiveDateTime::from_timestamp(ts as i64, (ts.fract() * 1_000_000_000.0) as u32);
-            ts.into()
+            chrono::Utc
+                .timestamp_opt(ts.trunc() as i64, ts.fract() as u32)
+                .unwrap()
+                .into()
         }
     }
+
+    impl From<chrono::DateTime<chrono::Utc>> for sql_timestamp::UnixTimestamp {
+        fn from(dt: DateTime<Utc>) -> Self {
+            UnixTimestamp(SqlTimestamp {
+                year: dt.year() as odbc::ffi::SQLSMALLINT,
+                month: dt.month() as odbc::ffi::SQLUSMALLINT,
+                day: dt.day() as odbc::ffi::SQLUSMALLINT,
+                hour: dt.hour() as odbc::ffi::SQLUSMALLINT,
+                minute: dt.minute() as odbc::ffi::SQLUSMALLINT,
+                second: dt.second() as odbc::ffi::SQLUSMALLINT,
+                fraction: dt.nanosecond(),
+            })
+        }
+    }
+    //    impl From<>
 
     impl From<NaiveDateTime> for UnixTimestamp {
         fn from(value: NaiveDateTime) -> UnixTimestamp {
@@ -98,7 +116,10 @@ mod sql_timestamp {
         #[test]
         fn test_timestamp_as_date_time() {
             let ts: UnixTimestamp = 1547115460.2291234.into();
-            assert_eq!(ts.as_naive_date_time().timestamp_millis(), 1547115460229);
+            assert_eq!(
+                ts.as_naive_date_time().and_utc().timestamp_millis(),
+                1547115460229
+            );
         }
     }
 }
@@ -157,7 +178,11 @@ pub struct StringUtf16(pub Vec<u16>);
 
 impl fmt::Debug for StringUtf16 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "N{:?}", String::from_utf16(&self.0).expect("StringUtf16 is not valid UTF-16 encoded string"))
+        write!(
+            f,
+            "N{:?}",
+            String::from_utf16(&self.0).expect("StringUtf16 is not valid UTF-16 encoded string")
+        )
     }
 }
 
@@ -200,7 +225,6 @@ impl<'de> serde::de::Deserialize<'de> for StringUtf16 {
     where
         D: serde::de::Deserializer<'de>,
     {
-        String::deserialize(deserializer)
-            .map(From::from)
+        String::deserialize(deserializer).map(From::from)
     }
 }

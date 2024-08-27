@@ -1,10 +1,10 @@
 use error_context::prelude::*;
+use lazy_static::lazy_static;
 use log::{debug, log_enabled, trace};
 use odbc::{
     Allocated, ColumnDescriptor, Connection as OdbcConnection, DiagnosticRecord, Executed,
     NoResult, OdbcType, Prepared, ResultSetState, Statement,
 };
-use lazy_static::lazy_static;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -12,9 +12,11 @@ use std::fmt::Debug;
 use std::sync::Mutex;
 
 use crate::result_set::{DataAccessError, ResultSet, ResultSetError};
-use crate::row::{Settings, Configuration, DefaultConfiguration, ColumnType, UnsupportedSqlDataType, TryFromRow};
-use crate::{Odbc, OdbcError};
+use crate::row::{
+    ColumnType, Configuration, DefaultConfiguration, Settings, TryFromRow, UnsupportedSqlDataType,
+};
 use crate::stats::{self, ConnectionOpenGuard};
+use crate::{Odbc, OdbcError};
 
 /// Errors related to execution of queries.
 ///
@@ -235,7 +237,10 @@ impl Connection {
 
     /// Connect to database using connection string with default configuration options.
     /// Assume that driver connect call is thread safe.
-    pub unsafe fn new_concurrent(odbc: &'static Odbc, connection_string: &str) -> Result<Connection, OdbcError> {
+    pub unsafe fn new_concurrent(
+        odbc: &'static Odbc,
+        connection_string: &str,
+    ) -> Result<Connection, OdbcError> {
         Self::with_settings_concurrent(odbc, connection_string, Default::default())
     }
 
@@ -265,12 +270,10 @@ impl Connection {
             .connect_with_connection_string(connection_string)
             .wrap_error_while("connecting to database")
             .map_err(Into::into)
-            .map(|connection| {
-                Connection {
-                    connection,
-                    settings,
-                    _stats_guard: ConnectionOpenGuard::new(),
-                }
+            .map(|connection| Connection {
+                connection,
+                settings,
+                _stats_guard: ConnectionOpenGuard::new(),
             })
     }
 }
@@ -295,7 +298,10 @@ impl<'c: 'c> Connection {
         }
     }
 
-    pub fn handle_with_configuration<C: Configuration>(&'c mut self, configuration: C) -> Handle<'c, C> {
+    pub fn handle_with_configuration<C: Configuration>(
+        &'c mut self,
+        configuration: C,
+    ) -> Handle<'c, C> {
         Handle {
             connection: self,
             configuration,
@@ -304,7 +310,10 @@ impl<'c: 'c> Connection {
 }
 
 impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
-    pub fn with_configuration<CNew: Configuration>(&mut self, configuration: CNew) -> Handle<'c, CNew> {
+    pub fn with_configuration<CNew: Configuration>(
+        &mut self,
+        configuration: CNew,
+    ) -> Handle<'c, CNew> {
         Handle {
             connection: self.connection,
             configuration,
@@ -332,17 +341,18 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
         debug!("Getting ODBC tables");
         let statement = self.statement()?;
 
-        let (result_set, stats_guard): (ResultSetState<'c, 'c, Allocated>, _) = stats::query_execution(move || {
-            statement
-                .tables_str(
-                    catalog,
-                    schema.unwrap_or(""),
-                    table.unwrap_or(""),
-                    table_type.unwrap_or(""),
-                )
-                .wrap_error_while("executing direct statement")
-                .map(ResultSetState::Data)
-        })?;
+        let (result_set, stats_guard): (ResultSetState<'c, 'c, Allocated>, _) =
+            stats::query_execution(move || {
+                statement
+                    .tables_str(
+                        catalog,
+                        schema.unwrap_or(""),
+                        table.unwrap_or(""),
+                        table_type.unwrap_or(""),
+                    )
+                    .wrap_error_while("executing direct statement")
+                    .map(ResultSetState::Data)
+            })?;
 
         Ok(ResultSet::from_result(
             self,
@@ -369,7 +379,10 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
     }
 
     /// Execute one-off query.
-    pub fn query<V>(&'h mut self, query: &str) -> Result<ResultSet<'h, 'c, V, Executed, C>, QueryError>
+    pub fn query<V>(
+        &'h mut self,
+        query: &str,
+    ) -> Result<ResultSet<'h, 'c, V, Executed, C>, QueryError>
     where
         V: TryFromRow<C>,
     {
@@ -435,9 +448,7 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
         })?;
 
         let (result_set, stats_guard) = stats::query_execution(move || {
-            statement
-                .execute()
-                .wrap_error_while("executing statement")
+            statement.execute().wrap_error_while("executing statement")
         })?;
 
         Ok(ResultSet::from_result(
@@ -451,19 +462,28 @@ impl<'h, 'c: 'h, C: Configuration> Handle<'c, C> {
 
     /// Calls "START TRANSACTION"
     pub fn start_transaction(&mut self) -> Result<(), QueryError> {
-        self.with_configuration(DefaultConfiguration).query::<()>("START TRANSACTION")?.no_result().unwrap();
+        self.with_configuration(DefaultConfiguration)
+            .query::<()>("START TRANSACTION")?
+            .no_result()
+            .unwrap();
         Ok(())
     }
 
     /// Calls "COMMIT"
     pub fn commit(&mut self) -> Result<(), QueryError> {
-        self.with_configuration(DefaultConfiguration).query::<()>("COMMIT")?.no_result().unwrap();
+        self.with_configuration(DefaultConfiguration)
+            .query::<()>("COMMIT")?
+            .no_result()
+            .unwrap();
         Ok(())
     }
 
     /// Calls "ROLLBACK"
     pub fn rollback(&mut self) -> Result<(), QueryError> {
-        self.with_configuration(DefaultConfiguration).query::<()>("ROLLBACK")?.no_result().unwrap();
+        self.with_configuration(DefaultConfiguration)
+            .query::<()>("ROLLBACK")?
+            .no_result()
+            .unwrap();
         Ok(())
     }
 
